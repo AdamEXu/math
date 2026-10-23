@@ -3,7 +3,6 @@ import type { Graph } from "./types";
 
 export const graphPath = (id: string) => `/calculator/${id}`;
 export const thumbnailUrl = (graph: Graph) => `/graphs/${graph.id}/thumbnail.png?v=${graph.thumbnail_at}`;
-export const updatesUrl = (id: string) => `/api/graphs/${id}/updates`;
 
 export const listGraphs = async () => (await api<{ graphs: Graph[] }>("/api/graphs")).graphs;
 

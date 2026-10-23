@@ -1,7 +1,9 @@
 import { useState } from "react";
-import type { Me } from "../api/types";
+import type { PublicUser } from "../api/types";
 
-export function Avatar({ user, size }: { user: Me; size: number }) {
+export type AvatarUser = Pick<PublicUser, "avatar_url" | "avatar_hue" | "avatar_initial">;
+
+export function Avatar({ user, size }: { user: AvatarUser; size: number }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const url = user.avatar_url !== failedUrl ? user.avatar_url : null;
   return (

@@ -7,7 +7,7 @@ Persisted contract for a graph's Y.Doc. The server keeps every update forever, s
 
   meta    Y.Map    title: Y.Text
   state   Y.Map    top-level Desmos state keys except graph and expressions, plain JSON values
-  graph   Y.Map    state.graph keys (viewport and settings), plain JSON values
+  graph   Y.Map    state.graph keys (settings, plus the owner's last view under VIEW_KEYS), plain JSON values
   list    Y.Map    state.expressions keys except list and ticker, plain JSON values
   ticker  Y.Map    state.expressions.ticker as an item; empty means no ticker
   order   Y.Array  expression ids (strings) in list order
@@ -55,6 +55,8 @@ const NESTED_KEYS = new Set([
 ]);
 const LIST_KEYS = new Set(["columns", "values"]);
 
+export const VIEW_KEYS = ["viewport", "__v12ViewportLatexStash"] as const;
+
 export const LOCAL = "local";
 export const REMOTE = "remote";
 export const LOAD = "load";
@@ -64,9 +66,11 @@ type JsonObject = { [key: string]: Json | undefined };
 type Shared = Y.Text | Y.Map<unknown> | Y.Array<unknown>;
 type Value = Json | Shared | undefined;
 
+export type DesmosItem = JsonObject & { id?: Json; type?: Json };
+
 export type DesmosState = JsonObject & {
   graph?: JsonObject & { viewport?: Json };
-  expressions?: JsonObject & { list?: (JsonObject & { id?: Json; type?: Json })[]; ticker?: JsonObject };
+  expressions?: JsonObject & { list?: DesmosItem[]; ticker?: JsonObject };
 };
 
 const isObject = (v: unknown): v is JsonObject => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -205,8 +209,9 @@ export function writeState(doc: Y.Doc, state: DesmosState, { keepViewport = fals
   doc.transact(() => {
     syncItem(doc.getMap("state"), rest, true);
     const graphMap = doc.getMap("graph");
-    const viewport = keepViewport && graphMap.has("viewport") ? (graphMap.get("viewport") as Json) : graph.viewport;
-    syncItem(graphMap, { ...graph, viewport }, true);
+    const nextGraph: JsonObject = { ...graph };
+    if (keepViewport) for (const key of VIEW_KEYS) nextGraph[key] = graphMap.get(key) as Json | undefined;
+    syncItem(graphMap, nextGraph, true);
     syncItem(doc.getMap("list"), listRest, true);
     syncItem(doc.getMap("ticker"), ticker ?? {});
 

@@ -20,3 +20,81 @@ body.calculator-page { display: flex; flex-direction: column; overflow: hidden; 
   .title-input { max-width: 30vw; }
   .save-status { font-size: 0; padding: 0 8px; gap: 0; }
 }
+
+.share-slot { display: flex; align-items: center; gap: 4px; margin: 0 8px 0 2px; }
+.tb-share { width: 36px; border: 0; background: none; cursor: pointer; border-radius: 4px; }
+.tb-share:hover { color: #fff; }
+.tb-share svg { width: 21px; height: 21px; }
+
+.view-only {
+  height: 30px; margin-right: 8px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid #555; border-radius: 4px; color: #ccc; font-size: 14px; white-space: nowrap;
+}
+.view-only svg { width: 15px; height: 15px; }
+.title-input:read-only { cursor: default; }
+.title-input:read-only:hover { border-color: transparent; }
+.title-input:read-only:focus { background: transparent; border-color: transparent; color: #ddd; }
+
+.no-access { padding-top: 15vh; }
+.no-access a { color: var(--blue); }
+
+.share-panel { max-width: 520px; }
+.share-panel h1 { padding-right: 32px; overflow-wrap: anywhere; }
+.share-add { margin: 18px 0 4px; }
+.share-add-row { display: flex; gap: 8px; }
+.share-search { position: relative; flex: 1; min-width: 0; }
+.share-input { height: 38px; font-size: 15px; }
+.share-results {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10; margin: 0; padding: 6px 0; list-style: none;
+  background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.share-results li { display: flex; align-items: center; gap: 10px; padding: 7px 12px; cursor: pointer; }
+.share-results li.active { background: #f2f2f2; }
+
+.select {
+  height: 38px; padding: 0 28px 0 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; color: var(--ink);
+  font: inherit; font-size: 15px; cursor: pointer; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #666 50%), linear-gradient(135deg, #666 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat;
+}
+.select:focus { outline: 0; border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.select-quiet { height: 32px; border-color: transparent; font-size: 14px; }
+.select-quiet:hover { border-color: #ccc; }
+
+.share-section { margin-top: 22px; }
+.share-section h2 { margin: 0 0 6px; }
+.share-people { margin: 0; padding: 0; list-style: none; }
+.share-person { display: flex; align-items: center; gap: 12px; min-height: 52px; }
+.share-person-text { flex: 1; min-width: 0; }
+.share-person-name { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.share-person-handle { margin-top: 2px; font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.share-online { font-size: 12px; color: #2f9e44; }
+.share-online::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: #2f9e44; vertical-align: 1px; }
+.share-person-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.share-role-text { font-size: 14px; color: var(--muted); padding: 0 6px; }
+
+.icon-button {
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  border: 0; border-radius: 4px; background: none; color: #777; cursor: pointer;
+}
+.icon-button:hover { background: #f0f0f0; color: #333; }
+.icon-button svg { width: 17px; height: 17px; }
+.btn-small { height: 30px; padding: 0 10px; gap: 6px; font-size: 14px; }
+.btn-small svg { width: 15px; height: 15px; }
+.btn-secondary { gap: 7px; }
+.btn-secondary svg { width: 17px; height: 17px; }
+
+.share-link { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.share-link-icon {
+  width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: #eee; color: #666;
+}
+.share-link-icon.on { background: color-mix(in srgb, var(--blue) 14%, transparent); color: var(--blue); }
+.share-link-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-left: -10px; }
+.share-link-text { font-size: 15px; color: var(--ink); }
+.share-panel .hint { margin-left: 48px; }
+.share-footer { display: flex; justify-content: flex-start; margin-top: 24px; padding-top: 18px; border-top: 1px solid #eee; }
+
+@media (max-width: 600px) {
+  .view-only { font-size: 0; gap: 0; padding: 0 8px; }
+}

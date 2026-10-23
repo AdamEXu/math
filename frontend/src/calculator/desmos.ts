@@ -1,14 +1,26 @@
 import { fetchConfig } from "../api/me";
-import type { DesmosState } from "./ydesmos";
+import type { DesmosItem, DesmosState } from "./ydesmos";
 
 const DESMOS_SCRIPT = "https://www.desmos.com/api/v1.13/calculator.js";
 
-export type ScreenshotOptions = { width: number; height: number; targetPixelRatio: number };
+export type MathBounds = { left: number; right: number; bottom: number; top: number };
+export type ScreenshotOptions = {
+  width: number;
+  height: number;
+  targetPixelRatio: number;
+  mode?: "contain" | "stretch" | "preserveX" | "preserveY";
+  mathBounds?: MathBounds;
+};
 export type ChangeEvent = { isUserInitiated: boolean };
 
 export interface Calculator {
   getState(): DesmosState;
   setState(state: DesmosState, options?: { allowUndo?: boolean }): void;
+  setExpression(expression: DesmosItem): void;
+  removeExpressions(expressions: { id: string }[]): void;
+  withHistoryReplacement(callback: () => void): void;
+  readonly selectedExpressionId: string | undefined;
+  setSelectedExpressionId(id: string): void;
   observeEvent(name: "change", callback: (name: string, event: ChangeEvent) => void): void;
   asyncScreenshot(options: ScreenshotOptions, callback: (dataUrl: string) => void): void;
   destroy(): void;
