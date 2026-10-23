@@ -428,3 +428,64 @@ def test_reconnect_exchanges_missing_edits_both_ways(server, app, alice, bob, gr
     assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == [(4,)]
     again.close()
     b.close()
+
+
+def test_same_user_tabs_sync_as_independent_clients(server, app, alice, bob, graph_id):
+    share(alice, graph_id, "bob", "editor")
+    tabs = [Peer(server, app, graph_id, alice.user_id) for _ in range(2)]
+    for tab in tabs:
+        tab.handshake("owner")
+    other = Peer(server, app, graph_id, bob.user_id)
+    other.handshake("editor")
+
+    tabs[0].edit(lambda meta: set_title(meta, "From tab one"))
+    assert tabs[0].recv() == ("ack",)
+    tabs[1].receive_update()
+    assert tabs[1].title() == "From tab one"
+    other.receive_update()
+
+    cursor = {"cursor": {"kind": "graph", "x": 1, "y": 2}, "live": {"3": {"latex": "a=2"}}}
+    tabs[0].ws.send_bytes(awareness(11, 1, cursor))
+    tabs[1].ws.send_bytes(awareness(12, 1, {"cursor": {"kind": "graph", "x": 3, "y": 4}}))
+    for peer, expected in ((tabs[1], [11]), (tabs[0], [12]), (other, [11, 12])):
+        seen = []
+        while len(seen) < len(expected):
+            kind, entries = peer.recv()
+            assert kind == "awareness"
+            seen += [(client_id, state["user"]["id"]) for client_id, _, state in entries]
+        assert seen == [(client_id, alice.user_id) for client_id in expected]
+
+    tabs[0].close()
+    for peer in (tabs[1], other):
+        kind, [(client_id, clock, state)] = peer.recv()
+        assert (kind, client_id, clock, state) == ("awareness", 11, 2, None)
+    assert [user["handle"] for user in realtime.graph_users(graph_id)] == ["alice", "bob"]
+    tabs[1].close()
+    other.close()
+
+
+def test_reconnecting_tab_reclaims_its_awareness_from_a_stale_socket(server, app, alice, bob, graph_id):
+    share(alice, graph_id, "bob", "editor")
+    stale = Peer(server, app, graph_id, alice.user_id)
+    stale.handshake("owner")
+    watcher = Peer(server, app, graph_id, bob.user_id)
+    watcher.handshake("editor")
+    stale.ws.send_bytes(awareness(11, 1, {"selected": "old"}))
+    assert watcher.recv()[1][0][:2] == (11, 1)
+
+    fresh = Peer(server, app, graph_id, alice.user_id)
+    fresh.handshake("owner")
+    while fresh.recv()[0] != "awareness":
+        pass
+    fresh.ws.send_bytes(awareness(11, 3, {"selected": "new"}))
+    kind, [(client_id, clock, state)] = watcher.recv()
+    assert (kind, client_id, clock, state["selected"]) == ("awareness", 11, 3, "new")
+
+    watcher.ws.send_bytes(awareness(11, 9, {"selected": "hijack"}))
+    stale.close()
+    fresh.ws.send_bytes(awareness(11, 4, {"selected": "still mine"}))
+    kind, [(client_id, clock, state)] = watcher.recv()
+    assert (kind, client_id, clock, state["selected"]) == ("awareness", 11, 4, "still mine")
+    assert json.loads(realtime.live_room(graph_id).awareness[11][1])["selected"] == "still mine"
+    fresh.close()
+    watcher.close()

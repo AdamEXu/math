@@ -183,7 +183,9 @@ class Room:
             client_id, clock, raw = reader.uint(), reader.uint(), reader.string()
             current = self.awareness.get(client_id)
             if current is not None and current[2] is not peer:
-                continue
+                if current[2].user_id != peer.user_id:
+                    continue
+                current[2].client_ids.discard(client_id)
             if current is None and client_id not in peer.client_ids and len(peer.client_ids) >= 4:
                 continue
             try:
