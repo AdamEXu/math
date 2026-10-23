@@ -1,0 +1,67 @@
+@import url("https://fonts.googleapis.com/css2?family=Quicksand:wght@500&display=swap");
+
+:root {
+  --header: #2a2a2a;
+  --blue: #2f72dc;
+  --ink: #333;
+  --muted: #777;
+  --line: #ccc;
+  --font: Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font-family: var(--font); color: var(--ink); -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+[data-lucide], svg.lucide { width: 18px; height: 18px; flex: none; display: inline-block; }
+
+.topbar {
+  position: relative; height: 46px; flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 2px; background: #2a2a2a; color: #ddd; font-family: Arial, sans-serif; font-size: 16px; user-select: none;
+}
+.topbar-left, .topbar-right { display: flex; align-items: center; height: 100%; min-width: 0; z-index: 1; }
+
+.tb-icon {
+  width: 40px; height: 46px; display: inline-flex; align-items: center; justify-content: center;
+  color: #ddd; text-decoration: none;
+}
+.tb-icon svg { width: 22px; height: 22px; stroke-width: 1.6; }
+.tb-icon.small svg { width: 19px; height: 19px; stroke-width: 2; }
+.tb-icon:hover, .user-button:hover, .user-button[aria-expanded="true"] { color: #fff; }
+
+.tb-title-block { display: flex; align-items: center; height: 20px; padding: 0 12px; border-left: 1px solid #949494; min-width: 0; }
+.tb-title { font-size: 16px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.wordmark {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -56%);
+  font-family: "Quicksand", Arial, sans-serif; font-weight: 500; font-size: 30px; line-height: 1;
+  color: #efefef; text-decoration: none;
+}
+
+.user-button {
+  display: inline-flex; align-items: center; gap: 7px; height: 46px; padding: 0 10px;
+  border: 0; background: transparent; color: #ddd; font-size: 16px; cursor: pointer;
+}
+.caret { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid currentColor; }
+
+.tb-avatar { width: 40px; height: 46px; display: inline-flex; align-items: center; justify-content: center; }
+.tb-avatar img { width: 20px; height: 20px; border-radius: 2px; display: block; }
+
+.dropdown { position: relative; }
+.menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 100; min-width: 200px; padding: 6px 0;
+  background: #fff; color: var(--ink); border: 1px solid #ddd; border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18); font-size: 15px;
+}
+.menu-right { left: auto; right: 0; }
+.menu form { margin: 0; }
+.menu-label { padding: 6px 14px 8px; color: var(--muted); font-size: 13px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+.menu-item {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border: 0; background: none;
+  text-align: left; color: var(--ink); text-decoration: none; cursor: pointer; font-size: 15px;
+}
+.menu-item svg { width: 17px; height: 17px; color: #666; }
+.menu-item:hover, .menu-item:focus-visible { background: #f2f2f2; outline: 0; }
+.menu-item.danger, .menu-item.danger svg { color: #c33; }

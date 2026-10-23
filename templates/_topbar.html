@@ -1,0 +1,33 @@
+{% macro topbar(save_status=False) %}
+<header class="topbar">
+  <div class="topbar-left">
+    <a class="tb-icon" href="{{ url_for('graphs.library') }}" id="open-library" title="My Graphs" aria-label="My Graphs"><i data-lucide="folder-open"></i></a>
+    <div class="tb-title-block">{{ caller() }}</div>
+    {% if save_status %}
+    <div class="save-status" id="status" data-status="loading" role="status" aria-live="polite">
+      <span data-when="loading">Loading...</span>
+      <span data-when="saved"><i data-lucide="cloud-check"></i>Saved</span>
+      <span data-when="saving"><i data-lucide="loader-circle" class="spin"></i>Saving...</span>
+      <span data-when="offline"><i data-lucide="cloud-off"></i>Offline</span>
+      <span data-when="error"><i data-lucide="cloud-off"></i>Couldn't load</span>
+    </div>
+    {% endif %}
+  </div>
+  <a class="wordmark" href="{{ url_for('graphs.library') }}">math</a>
+  <div class="topbar-right">
+    <div class="dropdown user-menu">
+      <button class="user-button" type="button" aria-haspopup="menu" aria-expanded="false">
+        {{ (session.get("name") or session["email"]).split()[0] }}<span class="caret"></span>
+      </button>
+      <div class="menu menu-right" role="menu" hidden>
+        <div class="menu-label">{{ session["email"] }}</div>
+        <form method="post" action="{{ url_for('auth.logout') }}">
+          <button class="menu-item" type="submit" role="menuitem"><i data-lucide="log-out"></i>Sign out</button>
+        </form>
+      </div>
+    </div>
+    <a class="tb-icon small" href="https://help.desmos.com/hc/en-us" target="_blank" rel="noopener" title="Help" aria-label="Help"><i data-lucide="circle-help"></i></a>
+    <a class="tb-avatar" href="{{ url_for('graphs.library') }}" aria-label="math"><img src="/static/icon.svg" alt=""></a>
+  </div>
+</header>
+{% endmacro %}

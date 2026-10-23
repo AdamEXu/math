@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>My Graphs - math</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
+  <script type="module" src="{{ url_for('static', filename='js/library.js') }}"></script>
+</head>
+<body>
+  {% from "_topbar.html" import topbar %}
+  {% call topbar() %}<span class="tb-title">My Graphs</span>{% endcall %}
+
+  <main class="library">
+    <div class="toolbar">
+      <div class="split-button dropdown">
+        <form method="post" action="{{ url_for('graphs.create') }}">
+          <button class="split-main" type="submit"><i data-lucide="chart-spline"></i>New Graph</button>
+        </form>
+        <button class="split-caret" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More new graph options"><span class="caret"></span></button>
+        <div class="menu" role="menu" hidden>
+          <form method="post" action="{{ url_for('graphs.create') }}">
+            <button class="menu-item" type="submit" role="menuitem"><i data-lucide="chart-spline"></i>Blank Graph</button>
+          </form>
+        </div>
+      </div>
+      <input id="search" class="search" type="search" placeholder="Search by title" autocomplete="off" spellcheck="false" aria-label="Search by title">
+    </div>
+
+    <nav class="tabs"><span class="tab active">Saved Work</span></nav>
+
+    {% if graphs %}
+    <div class="grid" id="grid">
+      {% for graph in graphs %}
+      {% set title = graph.title or "Untitled Graph" %}
+      <div class="card" data-title="{{ graph.title | lower }}">
+        <div class="card-head">
+          <a class="card-title{% if not graph.title %} untitled{% endif %}" href="{{ url_for('graphs.calculator', graph_id=graph.id) }}" title="{{ title }}">{{ title }}</a>
+          <div class="dropdown">
+            <button class="kebab" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Graph options"><i data-lucide="ellipsis-vertical"></i></button>
+            <div class="menu menu-right" role="menu" hidden>
+              <a class="menu-item" role="menuitem" href="{{ url_for('graphs.calculator', graph_id=graph.id) }}" target="_blank"><i data-lucide="external-link"></i>Open in new tab</a>
+              <form method="post" action="{{ url_for('graphs.delete', graph_id=graph.id) }}" data-confirm="Delete &ldquo;{{ title }}&rdquo;?">
+                <button class="menu-item danger" type="submit" role="menuitem"><i data-lucide="trash-2"></i>Delete</button>
+              </form>
+            </div>
+          </div>
+        </div>
+        <a class="thumb" href="{{ url_for('graphs.calculator', graph_id=graph.id) }}" tabindex="-1" aria-hidden="true">
+          {% if graph.thumbnail_at %}
+          <img src="{{ url_for('graphs.thumbnail', graph_id=graph.id, v=graph.thumbnail_at) }}" alt="" loading="lazy">
+          {% else %}
+          <span class="placeholder"></span>
+          {% endif %}
+          <time class="date" data-ts="{{ graph.updated_at }}"></time>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="note" id="no-results" hidden>No graphs match your search.</p>
+    {% else %}
+    <p class="note">No saved graphs yet. Click <strong>New Graph</strong> to start one.</p>
+    {% endif %}
+  </main>
+</body>
+</html>
