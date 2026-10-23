@@ -17,6 +17,8 @@ MESSAGE_SYNC = 0
 MESSAGE_AWARENESS = 1
 MESSAGE_ACK = 4
 MESSAGE_ROLE = 5
+MESSAGE_PING = 6
+MESSAGE_PONG = 7
 SYNC_STEP1 = 0
 SYNC_STEP2 = 1
 SYNC_UPDATE = 2
@@ -26,10 +28,12 @@ CLOSE_UNAUTHORIZED = 4401
 CLOSE_FORBIDDEN = 4403
 CLOSE_NOT_FOUND = 4404
 CLOSE_TOO_SLOW = 4408
+CLOSE_IDLE = 4000
 
 MAX_QUEUED = 2000
 MAX_AWARENESS_BYTES = 16 << 10
 MAX_WATCHED = 2000
+IDLE_TIMEOUT = 45
 
 log = logging.getLogger(__name__)
 _rooms = {}
@@ -102,6 +106,7 @@ def role_message(role):
 
 
 ACK_MESSAGE = bytes([MESSAGE_ACK])
+PONG_MESSAGE = bytes([MESSAGE_PONG])
 
 
 class Peer:
@@ -364,6 +369,8 @@ async def handle(room, peer, data, run):
             if delta is not None:
                 room.broadcast(sync_message(SYNC_UPDATE, delta), sender=peer)
             peer.send(ACK_MESSAGE)
+    elif kind == MESSAGE_PING:
+        peer.send(PONG_MESSAGE)
     elif kind == MESSAGE_AWARENESS:
         payload = reader.bytes()
         if len(payload) <= MAX_AWARENESS_BYTES:
@@ -416,7 +423,11 @@ def graph_socket(flask_app):
             if snapshot:
                 peer.send(snapshot)
             while not peer.closing:
-                message = await websocket.receive()
+                try:
+                    message = await asyncio.wait_for(websocket.receive(), IDLE_TIMEOUT)
+                except TimeoutError:
+                    peer.close(CLOSE_IDLE)
+                    break
                 if message["type"] == "websocket.disconnect":
                     break
                 if message.get("bytes"):

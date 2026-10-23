@@ -356,3 +356,53 @@ def test_presence_feed_requires_sign_in_and_origin(server, app, alice):
         ws.receive_text()
     assert info.value.code == realtime.CLOSE_UNAUTHORIZED
     socket.__exit__(None, None, None)
+
+
+def test_ping_gets_pong_and_idle_sockets_are_dropped(server, app, alice, bob, graph_id, monkeypatch):
+    share(alice, graph_id, "bob", "viewer")
+    a = Peer(server, app, graph_id, alice.user_id)
+    a.handshake("owner")
+    a.ws.send_bytes(bytes([realtime.MESSAGE_PING]))
+    assert a.ws.receive_bytes() == bytes([realtime.MESSAGE_PONG])
+    a.close()
+
+    monkeypatch.setattr(realtime, "IDLE_TIMEOUT", 0.2)
+    b = Peer(server, app, graph_id, bob.user_id)
+    b.handshake("viewer")
+    assert close_code(b) == realtime.CLOSE_IDLE
+
+
+def test_reconnect_exchanges_missing_edits_both_ways(server, app, alice, bob, graph_id):
+    share(alice, graph_id, "bob", "editor")
+    a = Peer(server, app, graph_id, alice.user_id)
+    a.handshake("owner")
+    a.edit(lambda m: set_title(m, "base"))
+    assert a.recv() == ("ack",)
+    a.close()
+
+    offline = a.doc
+    with offline.transaction():
+        offline.get("meta", type=Map)["offline"] = "alice"
+
+    b = Peer(server, app, graph_id, bob.user_id)
+    b.handshake("editor")
+    b.edit(lambda m: m["title"].insert(4, "!"))
+    assert b.recv() == ("ack",)
+
+    again = Peer(server, app, graph_id, alice.user_id)
+    again.doc = offline
+    server_state = again.handshake("owner")
+    again.ws.send_bytes(sync_message(realtime.SYNC_STEP2, offline.get_update(server_state)))
+    messages = [again.recv()]
+    assert messages == [("ack",)]
+    b.receive_update()
+    assert again.title() == b.title() == "base!"
+    assert b.doc.get("meta", type=Map)["offline"] == again.doc.get("meta", type=Map)["offline"] == "alice"
+    authors = rows(app, "SELECT author_id FROM updates WHERE graph_id = ? ORDER BY seq", graph_id)
+    assert authors == [(alice.user_id,), (alice.user_id,), (bob.user_id,), (alice.user_id,)]
+
+    again.ws.send_bytes(sync_message(realtime.SYNC_STEP2, offline.get_update()))
+    assert again.recv() == ("ack",)
+    assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == [(4,)]
+    again.close()
+    b.close()
