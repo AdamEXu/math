@@ -24,6 +24,7 @@ import {
   LOCAL,
   Y,
   type DesmosState,
+  type Json,
   deepEqual,
   readState,
   readTitle,
@@ -36,6 +37,7 @@ const CAPTURE_MS = 100;
 const VIEWPORT_MS = 500;
 const THUMBNAIL_IDLE_MS = 3000;
 const RETIRE_MS = 1000;
+const TICKER_POLL_MS = 150;
 const LEAVE_TIMEOUT_MS = 3000;
 const THUMBNAIL = { width: 320, height: 240, targetPixelRatio: 2 };
 const DEFAULT_TITLE = /^Untitled Graph( \(\d+\))?$/;
@@ -99,6 +101,14 @@ function mathBounds(viewport: unknown) {
   return { left: xmin as number, right: xmax as number, bottom: ymin as number, top: ymax as number };
 }
 
+function tickerPlaying(state: DesmosState) {
+  return state.expressions?.ticker?.playing === true;
+}
+
+function latexById(state: DesmosState) {
+  return new Map((state.expressions?.list ?? []).map((item) => [String(item.id), item.latex]));
+}
+
 export class GraphSession {
   readonly socket: GraphSocket;
   private captureTimer: number | null = null;
@@ -119,6 +129,10 @@ export class GraphSession {
   private readonly committedTicks = new Map<string, Tick>();
   private sliderKeys = new Map<string, string>();
   private readonly playStarts = new Map<string, Tick>();
+  private readonly tickerTouched = new Set<string>();
+  private readonly userTouched = new Set<string>();
+  private tickerSeen = new Map<string, Json | undefined>();
+  private tickerTimer: number | null = null;
 
   static async open({ graphId, userId, role, doc: update, desmos, container, titleInput, hooks }: OpenOptions) {
     const doc = new Y.Doc();
@@ -179,10 +193,14 @@ export class GraphSession {
     const initial = calc.getState();
     this.rememberCommitted(initial);
     this.trackSliders(initial, false);
+    this.watchTicker(initial);
     calc.observeEvent("change", (_name, event) => {
       const user = event.isUserInitiated && !this.applyingRemote;
-      const sliderChanged = this.trackSliders(this.calc.getState(), user);
-      if (sliderChanged) this.capture();
+      const state = this.calc.getState();
+      const sliderChanged = this.trackSliders(state, user);
+      const tickerEdited = user && this.noteUserEdits(state);
+      this.watchTicker(state);
+      if (sliderChanged || tickerEdited) this.capture();
       else if (user) this.scheduleCapture();
     });
     this.socket.awareness.on("change", this.onAwareness);
@@ -274,6 +292,52 @@ export class GraphSession {
     return changed;
   }
 
+  private watchTicker(state: DesmosState) {
+    if (tickerPlaying(state)) {
+      if (this.tickerTimer === null) {
+        this.tickerSeen = latexById(state);
+        this.tickerTimer = window.setInterval(() => this.pollTicker(), TICKER_POLL_MS);
+      }
+      return;
+    }
+    if (this.tickerTimer !== null) clearInterval(this.tickerTimer);
+    this.tickerTimer = null;
+    this.tickerTouched.clear();
+    this.userTouched.clear();
+  }
+
+  private pollTicker() {
+    const state = this.calc.getState();
+    if (!tickerPlaying(state)) return this.watchTicker(state);
+    this.learnTicks(state);
+    this.tickerSeen = latexById(state);
+    this.userTouched.clear();
+  }
+
+  private learnTicks(state: DesmosState) {
+    if (this.tickerTimer === null) return;
+    for (const item of state.expressions?.list ?? []) {
+      const id = String(item.id);
+      const seen = this.tickerSeen;
+      if (seen.has(id) && seen.get(id) !== item.latex && !this.userTouched.has(id) && !isPlaying(item))
+        this.tickerTouched.add(id);
+    }
+  }
+
+  private noteUserEdits(state: DesmosState) {
+    if (this.tickerTimer === null) return false;
+    const selected = this.calc.selectedExpressionId;
+    let edited = false;
+    for (const [id, value] of latexById(state)) {
+      if (this.tickerSeen.get(id) === value) continue;
+      if (this.tickerTouched.has(id) && id !== selected) continue;
+      if (this.tickerTouched.delete(id)) edited = true;
+      this.userTouched.add(id);
+      this.tickerSeen.set(id, value);
+    }
+    return edited;
+  }
+
   private rememberCommitted(state: DesmosState) {
     this.committedTicks.clear();
     for (const item of state.expressions?.list ?? []) this.committedTicks.set(String(item.id), tickOf(item));
@@ -294,6 +358,7 @@ export class GraphSession {
       committed,
       (id, key) =>
         ((key === "latex" || key === "slider") && isPlaying(items.get(id))) ||
+        (key === "latex" && this.tickerTouched.has(id)) ||
         remote.some((layer) => !!layer[id] && key in layer[id]),
     );
   }
@@ -301,6 +366,7 @@ export class GraphSession {
   private withoutEphemeral(state: DesmosState, committed: DesmosState): DesmosState {
     const docItems = itemsById(committed);
     const remote = this.remoteLayers();
+    const ticking = tickerPlaying(state) && tickerPlaying(committed);
     const list = (state.expressions?.list ?? []).map((item) => {
       const id = String(item.id);
       const prev = docItems.get(id);
@@ -308,6 +374,7 @@ export class GraphSession {
       let next = item;
       for (const layer of remote) for (const key of Object.keys(layer[id] ?? {})) next = { ...next, [key]: prev[key] };
       if (isPlaying(item)) next = withTick(next, this.playStarts.get(id) ?? tickOf(prev));
+      if (ticking && this.tickerTouched.has(id)) next = { ...next, latex: prev.latex };
       return next;
     });
     return { ...state, expressions: { ...state.expressions, list } };
@@ -316,10 +383,12 @@ export class GraphSession {
   private keepTicking(target: DesmosState, committed: DesmosState, local: DesmosState): DesmosState {
     const localItems = itemsById(local);
     const committedItems = itemsById(committed);
+    const ticking = tickerPlaying(committed) && tickerPlaying(local);
     const list = (target.expressions?.list ?? []).map((item) => {
       const id = String(item.id);
       const mine = localItems.get(id);
       const unchanged = sameTick(this.committedTicks.get(id), tickOf(committedItems.get(id)));
+      if (ticking && unchanged && mine && this.tickerTouched.has(id)) return { ...item, latex: mine.latex };
       return isPlaying(item) && isPlaying(mine) && unchanged ? withTick(item, tickOf(mine)) : item;
     });
     return { ...target, expressions: { ...target.expressions, list } };
@@ -413,7 +482,9 @@ export class GraphSession {
     this.captureTimer = null;
     if (!this.canEdit || this.dragging) return;
     const committed = readState(this.doc);
-    const state = committed ? this.withoutEphemeral(this.calc.getState(), committed) : this.calc.getState();
+    const local = this.calc.getState();
+    this.learnTicks(local);
+    const state = committed ? this.withoutEphemeral(local, committed) : local;
     this.playStarts.clear();
     this.rememberCommitted(state);
     const now = performance.now();
@@ -446,6 +517,9 @@ export class GraphSession {
       } finally {
         this.applyingRemote = false;
       }
+      const applied = this.calc.getState();
+      this.watchTicker(applied);
+      if (this.tickerTimer !== null) this.tickerSeen = latexById(applied);
     }
     if (document.activeElement !== this.titleInput) this.titleInput.value = readTitle(this.doc);
     this.updateDocumentTitle();
@@ -503,6 +577,7 @@ export class GraphSession {
     this.cursors?.dispose();
     this.socket.awareness.off("change", this.onAwareness);
     if (this.retireTimer !== null) clearTimeout(this.retireTimer);
+    if (this.tickerTimer !== null) clearInterval(this.tickerTimer);
     for (const detach of this.detachUi) detach();
     if (window.graphSession === this) delete window.graphSession;
 
