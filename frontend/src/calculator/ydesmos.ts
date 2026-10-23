@@ -16,6 +16,8 @@ Persisted contract for a graph's Y.Doc. The server keeps every update forever, s
 An item is a Y.Map of one expression's fields. A string under a TEXT_KEYS key is a Y.Text. An object under a
 NESTED_KEYS key is itself an item. An array under a LIST_KEYS key is a Y.Array whose objects are items and whose
 strings are Y.Text. Every other value, including fields Desmos adds later, is a plain JSON value.
+
+imported_update in docstore.py builds the same structure server-side for Desmos imports; keep the key sets in step.
 */
 const TEXT_KEYS = new Set([
   "latex",

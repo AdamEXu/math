@@ -2,13 +2,25 @@ import threading
 import uuid
 from collections import defaultdict
 
-from pycrdt import Doc, Map, Text, merge_updates
+from pycrdt import Array, Doc, Map, Text, merge_updates
 
 from db import write_transaction
 
 CHECKPOINT_EVERY = 200
 MAX_TITLE = 200
 EMPTY_UPDATE = Doc().get_update()
+MAX_SAFE_INT = 2**53 - 1
+
+# Mirrors writeState and the key sets in frontend/src/calculator/ydesmos.ts. Keep them in step.
+TEXT_KEYS = frozenset(
+    (
+        "latex text title label description name min max step handlerLatex minStepLatex center width height"
+        " angle opacity lineWidth lineOpacity pointSize pointOpacity fillOpacity labelAngle residualVariable"
+        " breadth axisOffset"
+    ).split()
+)
+NESTED_KEYS = frozenset("slider parametricDomain polarDomain domain clickableInfo vizProps cdf".split())
+LIST_KEYS = frozenset(("columns", "values"))
 
 
 def load_state(db, graph_id):
@@ -47,6 +59,61 @@ def title_update(state, title):
         else:
             meta["title"] = Text(title)
     return doc.get_update(before)
+
+
+def plain(value):
+    if isinstance(value, dict):
+        return {str(k): plain(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [plain(v) for v in value]
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > MAX_SAFE_INT:
+        return float(value)
+    return value
+
+
+def _shared(key, value):
+    if isinstance(value, str) and key in TEXT_KEYS:
+        return Text(value)
+    if isinstance(value, dict) and key in NESTED_KEYS:
+        return _item(value)
+    if isinstance(value, list) and key in LIST_KEYS:
+        return Array([_element(v) for v in value])
+    return value
+
+
+def _element(value):
+    if isinstance(value, str):
+        return Text(value)
+    if isinstance(value, dict):
+        return _item(value)
+    return value
+
+
+def _item(obj):
+    return Map({key: _shared(key, value) for key, value in obj.items()})
+
+
+def imported_update(title, state):
+    state = plain(state)
+    expressions = state.pop("expressions", None) or {}
+    graph = state.pop("graph", None) or {}
+    items = expressions.pop("list", None) or []
+    ticker = expressions.pop("ticker", None) or {}
+    doc = Doc()
+    with doc.transaction():
+        doc.get("meta", type=Map)["title"] = Text(title)
+        for name, values in (("state", state), ("graph", graph), ("list", expressions)):
+            target = doc.get(name, type=Map)
+            for key, value in values.items():
+                target[key] = value
+        ticker_map = doc.get("ticker", type=Map)
+        for key, value in ticker.items():
+            ticker_map[key] = _shared(key, value)
+        doc.get("order", type=Array).extend([str(item["id"]) for item in items])
+        item_map = doc.get("items", type=Map)
+        for item in items:
+            item_map[str(item["id"])] = _item(item)
+    return doc.get_update()
 
 
 def next_seq(db, graph_id):

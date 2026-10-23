@@ -7,11 +7,21 @@ import uuid
 from flask import Blueprint, Response, abort, g, request, url_for
 from pycrdt import Doc
 
+import desmos_com
 import realtime
 from access import GRAPH_ACCESS_QUERY, LISTED, access_row, at_least, role_of
 from auth import fetch_only, login_required
 from db import INIT_HOOKS, get_db, now_ms, uuid7, write_transaction
-from docstore import EMPTY_UPDATE, GraphDoc, append_server_update, graph_lock, load_state, title_update
+from docstore import (
+    EMPTY_UPDATE,
+    MAX_TITLE,
+    GraphDoc,
+    append_server_update,
+    graph_lock,
+    imported_update,
+    load_state,
+    title_update,
+)
 from folders import owned_folder, place_graph
 from users import public_user_json
 
@@ -141,27 +151,61 @@ def list_graphs():
     return {"graphs": [graph_json(row) for row in rows]}
 
 
+def payload_folder(payload):
+    folder_id = payload.get("folder_id")
+    return owned_folder(folder_id)["id"] if folder_id is not None else None
+
+
+def insert_graph(folder_id, initial_update, title=None):
+    graph_id = uuid7()
+    now = now_ms()
+    db = get_db()
+    with write_transaction(db):
+        title = title or default_title(db, g.user["id"])
+        db.execute(
+            "INSERT INTO graphs (id, owner_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (graph_id, g.user["id"], title, now, now),
+        )
+        append_server_update(db, graph_id, g.user["id"], initial_update(title), now)
+        if folder_id:
+            place_graph(db, g.user["id"], graph_id, folder_id)
+    return graph_by_id(graph_id)
+
+
+def desmos_failure(error):
+    return {"error": error.message}, error.status
+
+
 @graphs_bp.post("/graphs")
 @login_required
 def create():
     payload = request.get_json(silent=True) if request.get_data() else {}
     if not isinstance(payload, dict):
         abort(400)
-    folder_id = payload.get("folder_id")
-    folder_id = owned_folder(folder_id)["id"] if folder_id is not None else None
-    graph_id = uuid7()
-    now = now_ms()
-    db = get_db()
-    with write_transaction(db):
-        title = default_title(db, g.user["id"])
-        db.execute(
-            "INSERT INTO graphs (id, owner_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (graph_id, g.user["id"], title, now, now),
-        )
-        append_server_update(db, graph_id, g.user["id"], title_update(EMPTY_UPDATE, title), now)
-        if folder_id:
-            place_graph(db, g.user["id"], graph_id, folder_id)
-    return graph_by_id(graph_id), 201
+    folder_id = payload_folder(payload)
+    return insert_graph(folder_id, lambda title: title_update(EMPTY_UPDATE, title)), 201
+
+
+@graphs_bp.post("/graphs/import-desmos")
+@login_required
+def import_desmos():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        abort(400)
+    folder_id = payload_folder(payload)
+    graph_hash = desmos_com.parse_link(payload.get("link"))
+    if graph_hash is None:
+        return {"error": "Paste a desmos.com/calculator link."}, 400
+    if not desmos_com.import_limiter.allow(g.user["id"]):
+        return {"error": "Too many imports. Wait a few minutes and try again."}, 429
+    try:
+        graph = desmos_com.fetch_graph(graph_hash)
+    except desmos_com.DesmosError as error:
+        return desmos_failure(error)
+    title = graph["title"][:MAX_TITLE].strip()
+    if DEFAULT_TITLE_RE.fullmatch(title):
+        title = ""
+    return insert_graph(folder_id, lambda final: imported_update(final, graph["state"]), title), 201
 
 
 @graphs_bp.get("/graphs/<graph_id>")
@@ -225,6 +269,26 @@ def append_updates(graph_id):
     if room:
         room.broadcast_updates(deltas)
     return {"acked": [update_id for update_id, _, _ in parsed], "seq": seq}
+
+
+@graphs_bp.post("/graphs/<graph_id>/export-desmos")
+@login_required
+def export_desmos(graph_id):
+    row, _ = accessible_graph(graph_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        abort(400)
+    state = payload.get("state")
+    thumbnail = payload.get("thumbnail")
+    if not desmos_com.valid_state(state) or not desmos_com.thumbnail_ok(thumbnail):
+        abort(400)
+    if not desmos_com.export_limiter.allow(g.user["id"]):
+        return {"error": "Too many exports. Wait a few minutes and try again."}, 429
+    try:
+        saved_hash = desmos_com.publish(state, row["title"] or DEFAULT_TITLE, thumbnail)
+    except desmos_com.DesmosError as error:
+        return desmos_failure(error)
+    return {"hash": saved_hash, "url": desmos_com.graph_url(saved_hash)}
 
 
 @graphs_bp.post("/graphs/<graph_id>/thumbnail")
