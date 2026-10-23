@@ -160,8 +160,9 @@ def google_callback():
     except EmailInUse:
         return _fail("email_in_use")
     set_google_picture(account["id"], user.get("picture"))
+    target = safe_next(session.pop("login_next", None))
     sign_in(account)
-    return redirect(safe_next(session.pop("login_next", None)) or "/")
+    return redirect(target or "/")
 
 
 @auth_bp.post("/dev-login")

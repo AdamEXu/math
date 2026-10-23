@@ -49,3 +49,29 @@ def test_safe_next_accepts_local_paths():
 
 def test_signed_in_login_follows_next(alice):
     assert alice.get("/login?next=/calculator/abc").headers["Location"] == "/calculator/abc"
+
+
+class _Resp:
+    def __init__(self, data):
+        self.data = data
+
+    def json(self):
+        return self.data
+
+
+def test_google_callback_returns_to_next(app, monkeypatch):
+    import auth
+
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "secret")
+    monkeypatch.setattr(auth.requests, "post", lambda *a, **k: _Resp({"access_token": "t"}))
+    profile = {"id": "g-next", "email": "nextuser@pinewood.edu", "name": "Next User", "hd": "pinewood.edu", "verified_email": True}
+    monkeypatch.setattr(auth.requests, "get", lambda *a, **k: _Resp(profile))
+    client = app.test_client()
+    client.get("/auth/google?next=/calculator/abc")
+    with client.session_transaction() as sess:
+        state = sess["google_oauth_state"]
+    res = client.get(f"/auth/google/callback?state={state}&code=c")
+    assert res.status_code == 302 and res.headers["Location"] == "/calculator/abc"
+    with client.session_transaction() as sess:
+        assert "login_next" not in sess and sess["user_id"]
