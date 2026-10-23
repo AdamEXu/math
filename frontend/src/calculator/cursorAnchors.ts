@@ -20,7 +20,8 @@ type Point = { x: number; y: number };
 type Box = { left: number; top: number; right: number; bottom: number };
 
 const ROW = ".dcg-expressionitem[expr-id]";
-const KEYPAD = ".dcg-keys-container, .dcg-show-keypad-container";
+const KEYPAD = ".dcg-keys-container";
+const LIST = ".dcg-exppanel-container, .dcg-exp-list-resizer, .dcg-show-keypad-container";
 
 const finite = (...values: unknown[]) => values.every((v) => typeof v === "number" && Number.isFinite(v));
 
@@ -59,32 +60,44 @@ function underKeypad(root: HTMLElement, point: Point) {
 
 const fraction = (value: number, start: number, size: number) => (size > 0 ? (value - start) / size : 0);
 
+function rowAnchor(row: HTMLElement, id: string, point: Point): CursorAnchor {
+  const r = row.getBoundingClientRect();
+  return { kind: "row", id, fx: fraction(point.x, r.left, r.width), fy: fraction(point.y, r.top, r.height) };
+}
+
+function listAnchor(root: HTMLElement, target: Element, point: Point): CursorAnchor | null {
+  if (root.querySelector(".dcg-EDIT-LIST-MODE")) return null;
+  const row = target.closest<HTMLElement>(ROW);
+  const id = row?.getAttribute("expr-id");
+  if (row && id && row.closest(".dcg-exppanel")) return rowAnchor(row, id, point);
+  const bar = target.closest(".dcg-expression-top-bar");
+  if (bar) {
+    const r = bar.getBoundingClientRect();
+    return { kind: "bar", fx: fraction(point.x, r.left, r.width), fy: fraction(point.y, r.top, r.height) };
+  }
+  let nearest: { row: HTMLElement; id: string; distance: number } | null = null;
+  let last: { row: HTMLElement; id: string; bottom: number } | null = null;
+  for (const el of root.querySelectorAll<HTMLElement>(`.dcg-exppanel ${ROW}`)) {
+    const elId = el.getAttribute("expr-id");
+    const r = el.getBoundingClientRect();
+    if (!elId || r.height <= 0) continue;
+    if (!last || r.bottom >= last.bottom) last = { row: el, id: elId, bottom: r.bottom };
+    const distance = point.y < r.top ? r.top - point.y : point.y > r.bottom ? point.y - r.bottom : 0;
+    if (!nearest || distance < nearest.distance) nearest = { row: el, id: elId, distance };
+  }
+  if (!nearest || !last) return null;
+  if (point.y >= last.bottom) {
+    const r = last.row.getBoundingClientRect();
+    return { kind: "below", id: last.id, fx: fraction(point.x, r.left, r.width), dy: point.y - r.bottom };
+  }
+  return rowAnchor(nearest.row, nearest.id, point);
+}
+
 export function locate(root: HTMLElement, calc: Calculator, point: Point): CursorAnchor | null {
   const target = document.elementFromPoint(point.x, point.y);
   if (!target || !root.contains(target) || target.closest(KEYPAD)) return null;
 
-  const panel = target.closest(".dcg-exppanel-container");
-  if (panel) {
-    if (root.querySelector(".dcg-EDIT-LIST-MODE")) return null;
-    const row = target.closest<HTMLElement>(ROW);
-    const id = row?.getAttribute("expr-id");
-    if (row && id) {
-      const r = row.getBoundingClientRect();
-      return { kind: "row", id, fx: fraction(point.x, r.left, r.width), fy: fraction(point.y, r.top, r.height) };
-    }
-    const bar = target.closest(".dcg-expression-top-bar");
-    if (bar) {
-      const r = bar.getBoundingClientRect();
-      return { kind: "bar", fx: fraction(point.x, r.left, r.width), fy: fraction(point.y, r.top, r.height) };
-    }
-    const rows = panel.querySelectorAll<HTMLElement>(`.dcg-exppanel ${ROW}`);
-    const last = rows[rows.length - 1];
-    const lastId = last?.getAttribute("expr-id");
-    if (!last || !lastId) return null;
-    const r = last.getBoundingClientRect();
-    if (point.y < r.bottom) return null;
-    return { kind: "below", id: lastId, fx: fraction(point.x, r.left, r.width), dy: point.y - r.bottom };
-  }
+  if (target.closest(LIST)) return listAnchor(root, target, point);
 
   const clip = graphClip(root);
   if (!clip || !inside(clip, point)) return null;

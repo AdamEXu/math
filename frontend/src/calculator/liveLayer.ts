@@ -86,3 +86,19 @@ export function sliderSettings(item: DesmosItem) {
   const { playDirection: _direction, ...settings } = slider;
   return JSON.stringify(settings);
 }
+
+const NUMBER = /-?\d+(?:\.\d+)?/g;
+
+const decimals = (text: string) => text.split(".")[1]?.length ?? 0;
+
+export function lerpLatex(from: string, to: string, t: number): string | null {
+  const start = from.match(NUMBER) ?? [];
+  if (!start.length || from.replace(NUMBER, "#") !== to.replace(NUMBER, "#")) return null;
+  if (t >= 1) return to;
+  let i = 0;
+  return to.replace(NUMBER, (end) => {
+    const begin = start[i++] as string;
+    const value = Number(begin) + (Number(end) - Number(begin)) * t;
+    return value.toFixed(Math.max(decimals(begin), decimals(end)) + 1);
+  });
+}

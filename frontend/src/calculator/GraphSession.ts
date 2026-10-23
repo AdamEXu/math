@@ -10,6 +10,7 @@ import {
   isPatches,
   isPlaying,
   itemsById,
+  lerpLatex,
   patchApplied,
   sameTick,
   sliderSettings,
@@ -37,6 +38,10 @@ const CAPTURE_MS = 100;
 const VIEWPORT_MS = 500;
 const THUMBNAIL_IDLE_MS = 3000;
 const RETIRE_MS = 1000;
+const TWEEN_MS = 50;
+const MAX_TWEEN_MS = 150;
+
+type Tween = { type: unknown; from: string; to: string; start: number; duration: number; shown: string };
 const TICKER_POLL_MS = 150;
 const LEAVE_TIMEOUT_MS = 3000;
 const THUMBNAIL = { width: 320, height: 240, targetPixelRatio: 2 };
@@ -124,6 +129,9 @@ export class GraphSession {
   private dragPatches: Patches | null = null;
   private readonly remoteLive = new Map<number, Patches>();
   private readonly liveBase = new Map<number, Patches>();
+  private readonly liveAt = new Map<number, number>();
+  private readonly tweens = new Map<string, Tween>();
+  private tweenFrame: number | null = null;
   private readonly retired = new Map<number, { patches: Patches; base: Patches; until: number }>();
   private retireTimer: number | null = null;
   private readonly committedTicks = new Map<string, Tick>();
@@ -415,10 +423,13 @@ export class GraphSession {
       if (deepEqual(prev, next)) continue;
       changed = true;
       if (next) {
+        this.startTweens(clientId, prev, next);
         this.remoteLive.set(clientId, next);
         this.retired.delete(clientId);
         this.liveBase.set(clientId, this.committedFields(next, this.liveBase.get(clientId)));
       } else if (prev) {
+        for (const id of Object.keys(prev)) this.tweens.delete(id);
+        this.liveAt.delete(clientId);
         this.remoteLive.delete(clientId);
         const base = this.liveBase.get(clientId) ?? {};
         this.liveBase.delete(clientId);
@@ -431,6 +442,66 @@ export class GraphSession {
     this.remoteDirty = true;
     this.pushToDesmos();
   };
+
+  private startTweens(clientId: number, prev: Patches | null, next: Patches) {
+    const now = performance.now();
+    const last = this.liveAt.get(clientId);
+    const duration = last === undefined ? TWEEN_MS : Math.min(MAX_TWEEN_MS, Math.max(16, now - last));
+    this.liveAt.set(clientId, now);
+    let types: Map<string, unknown> | null = null;
+    for (const [id, patch] of Object.entries(next)) {
+      const to = patch.latex;
+      const running = this.tweens.get(id);
+      const from = running ? this.tweenValue(running, now) : prev?.[id]?.latex;
+      if (typeof to !== "string" || typeof from !== "string" || from === to || lerpLatex(from, to, 0) === null) {
+        this.tweens.delete(id);
+        continue;
+      }
+      types ??= new Map([...itemsById(readState(this.doc) ?? {})].map(([key, item]) => [key, item.type]));
+      this.tweens.set(id, { type: types.get(id), from, to, start: now, duration, shown: from });
+    }
+    if (this.tweenFrame !== null) cancelAnimationFrame(this.tweenFrame);
+    this.tweenFrame = this.tweens.size ? requestAnimationFrame(this.runTweens) : null;
+  }
+
+  private readonly runTweens = () => {
+    this.tweenFrame = null;
+    if (this.disposed) return;
+    const now = performance.now();
+    for (const [id, tween] of this.tweens) {
+      const value = this.tweenValue(tween, now);
+      if (value !== tween.shown) {
+        tween.shown = value;
+        this.applyingRemote = true;
+        try {
+          this.calc.setExpression({ id, type: tween.type as Json, latex: value });
+        } catch {
+          this.tweens.delete(id);
+        } finally {
+          this.applyingRemote = false;
+        }
+      }
+      if (now - tween.start >= tween.duration) this.tweens.delete(id);
+    }
+    if (this.tweens.size) this.tweenFrame = requestAnimationFrame(this.runTweens);
+  };
+
+  private tweenValue(tween: Tween, now: number) {
+    const t = Math.min(1, (now - tween.start) / tween.duration);
+    return lerpLatex(tween.from, tween.to, t) ?? tween.to;
+  }
+
+  private tweened(layers: Patches[]) {
+    if (!this.tweens.size) return layers;
+    const now = performance.now();
+    return layers.map((layer) => {
+      let out = layer;
+      for (const [id, tween] of this.tweens)
+        if (layer[id]?.latex !== undefined)
+          out = { ...out, [id]: { ...layer[id], latex: this.tweenValue(tween, now) } };
+      return out;
+    });
+  }
 
   private committedFields(patches: Patches, known: Patches = {}) {
     const missing = Object.entries(patches).some(([id, patch]) =>
@@ -506,7 +577,7 @@ export class GraphSession {
     const committed = readState(this.doc);
     if (committed) {
       this.pruneRetired(committed);
-      const layers = this.remoteLayers();
+      const layers = this.tweened(this.remoteLayers());
       if (this.dragging && this.dragPatches) layers.push(this.dragPatches);
       this.applyingRemote = true;
       try {
@@ -577,6 +648,7 @@ export class GraphSession {
     this.cursors?.dispose();
     this.socket.awareness.off("change", this.onAwareness);
     if (this.retireTimer !== null) clearTimeout(this.retireTimer);
+    if (this.tweenFrame !== null) cancelAnimationFrame(this.tweenFrame);
     if (this.tickerTimer !== null) clearInterval(this.tickerTimer);
     for (const detach of this.detachUi) detach();
     if (window.graphSession === this) delete window.graphSession;
