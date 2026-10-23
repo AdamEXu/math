@@ -24,12 +24,12 @@
 </head>
 <body>
   <img src="/static/icon.svg" width="48" height="48" alt="">
-  <a class="button" href="{{ url_for('auth.google') }}">Sign in with Google</a>
+  <a class="button" href="{{ url_for('auth.google', next=next) }}">Sign in with Google</a>
   {% if dev_email %}
-  <form method="post" action="{{ url_for('auth.dev_login') }}">
+  <form method="post" action="{{ url_for('auth.dev_login', next=next) }}">
     <button class="button dev" type="submit">Dev sign-in as {{ dev_email }}</button>
   </form>
-  <form class="dev-other" method="post" action="{{ url_for('auth.dev_login') }}">
+  <form class="dev-other" method="post" action="{{ url_for('auth.dev_login', next=next) }}">
     <input name="email" type="email" placeholder="someone@pinewood.edu" required aria-label="Dev email">
     <button class="button dev" type="submit">Dev sign-in</button>
   </form>

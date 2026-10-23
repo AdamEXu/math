@@ -1,3 +1,4 @@
+from urllib.parse import quote
 import pytest
 
 from tests.conftest import ASSET, INDEX_HTML, ORIGIN, signed_in
@@ -28,7 +29,7 @@ def test_app_routes_do_not_check_ownership(alice, bob):
 @pytest.mark.parametrize("path", APP_PATHS + ["/welcome"] + UNKNOWN_PATHS)
 def test_signed_out_redirects_to_login(app, path):
     res = app.test_client().get(path)
-    assert res.status_code == 302 and res.headers["Location"] == "/login"
+    assert res.status_code == 302 and res.headers["Location"] == ("/login" if path == "/" else "/login?next=" + quote(path, safe="/"))
 
 
 @pytest.mark.parametrize("path", APP_PATHS + UNKNOWN_PATHS)

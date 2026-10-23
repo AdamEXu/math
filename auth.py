@@ -32,7 +32,14 @@ def allowed_origins():
 
 
 def safe_next(target):
-    return target if target and target.startswith("/") and not target.startswith("//") else None
+    if not target or not target.startswith("/") or target.startswith("//") or "\\" in target:
+        return None
+    return None if any(ord(c) < 32 for c in target) else target
+
+
+def login_url(target=None):
+    target = safe_next(target)
+    return url_for("login", next=target) if target and target != "/" else url_for("login")
 
 
 def login_required(view=None, *, handle=True):
@@ -45,7 +52,9 @@ def login_required(view=None, *, handle=True):
         user = get_user(session["user_id"]) if "user_id" in session else None
         if user is None:
             session.clear()
-            return ({"error": "signed_out"}, 401) if api else redirect(url_for("login"))
+            if api:
+                return {"error": "signed_out"}, 401
+            return redirect(login_url(request.full_path.rstrip("?") if request.method == "GET" else None))
         g.user = user
         if handle and not user["handle"]:
             if api:
@@ -93,6 +102,7 @@ def dev_login_email():
 def google():
     state = secrets.token_urlsafe(32)
     session["google_oauth_state"] = state
+    session["login_next"] = safe_next(request.args.get("next"))
     params = {
         "client_id": os.environ["GOOGLE_CLIENT_ID"],
         "redirect_uri": _redirect_uri(),
@@ -105,7 +115,7 @@ def google():
 
 
 def _fail(error):
-    return redirect(url_for("login", error=error))
+    return redirect(url_for("login", error=error, next=safe_next(session.pop("login_next", None))))
 
 
 @auth_bp.get("/google/callback")
@@ -151,7 +161,7 @@ def google_callback():
         return _fail("email_in_use")
     set_google_picture(account["id"], user.get("picture"))
     sign_in(account)
-    return redirect("/")
+    return redirect(safe_next(session.pop("login_next", None)) or "/")
 
 
 @auth_bp.post("/dev-login")

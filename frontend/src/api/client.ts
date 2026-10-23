@@ -20,7 +20,8 @@ type RequestOptions = {
 };
 
 export function redirectToLogin() {
-  window.location.assign("/login");
+  const here = window.location.pathname + window.location.search + window.location.hash;
+  window.location.assign(here === "/" ? "/login" : `/login?next=${encodeURIComponent(here)}`);
 }
 
 async function send(path: string, { method = "GET", json, body, headers, cache }: RequestOptions) {

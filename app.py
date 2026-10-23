@@ -6,7 +6,7 @@ from flask import Flask, redirect, render_template, request, session
 from werkzeug.exceptions import HTTPException
 
 from api import api_bp, api_error, is_api_path
-from auth import auth_bp, dev_login_email
+from auth import auth_bp, dev_login_email, safe_next
 from db import close_db
 from graphs import MAX_IMAGE_BYTES, files_bp
 from spa import is_spa_path, not_found_page, spa_bp
@@ -45,11 +45,12 @@ def http_error(error):
 
 @app.get("/login")
 def login():
+    target = safe_next(request.args.get("next"))
     if "user_id" in session:
-        return redirect("/")
+        return redirect(target or "/")
     error = request.args.get("error")
     message = LOGIN_ERRORS.get(error, "Sign-in failed, try again.") if error else None
-    return render_template("login.html", error=message, dev_email=dev_login_email())
+    return render_template("login.html", error=message, dev_email=dev_login_email(), next=target)
 
 
 @app.get("/health")

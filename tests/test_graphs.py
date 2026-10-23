@@ -204,7 +204,7 @@ def test_logout_requires_same_origin(alice):
     assert alice.post("/auth/logout").status_code == 403
     assert alice.get("/api/me").status_code == 200
     res = alice.post("/auth/logout", headers={"Origin": ORIGIN})
-    assert res.status_code == 302 and res.headers["Location"] == "/login"
+    assert res.status_code == 302 and res.headers["Location"].startswith("/login?next=/images/")
     assert alice.get("/api/me").status_code == 401
     assert alice.get("/").headers["Location"] == "/login"
 
@@ -256,7 +256,7 @@ def test_images_need_login(app, alice):
     sha = hashlib.sha256(PNG).hexdigest()
     alice.post("/api/images", data=PNG, content_type="image/png", headers=FETCH)
     res = app.test_client().get(f"/images/{sha}")
-    assert res.status_code == 302 and res.headers["Location"] == "/login"
+    assert res.status_code == 302 and res.headers["Location"].startswith("/login?next=/images/")
 
 
 def test_dev_login_only_in_debug(app, monkeypatch):
