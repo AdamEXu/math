@@ -118,7 +118,16 @@ function cursorBox(block: Element, cursor: Element): [number, number, number] | 
   const line = parseFloat(getComputedStyle(cursor).borderLeftWidth) || 1;
   const em = fontSize(block);
   if (c.height <= 0) return undefined;
-  return [round((c.left + line / 2 - b.left) / em), round((c.top - b.top) / em), round(c.height / em)];
+  return [
+    round((c.left + line / 2 - b.left + block.scrollLeft) / em),
+    round((c.top - b.top) / em),
+    round(c.height / em),
+  ];
+}
+
+function visible(root: Element, box: CaretBox) {
+  const r = root.getBoundingClientRect();
+  return box.x >= r.left - 1 && box.x <= r.right + 1 ? box : null;
 }
 
 export function caretBox(container: HTMLElement, caret: CaretPosition): CaretBox | null {
@@ -144,11 +153,16 @@ export function caretBox(container: HTMLElement, caret: CaretPosition): CaretBox
   if (caret.box) {
     const em = fontSize(block);
     const [dx, dy, h] = caret.box;
-    return { x: blockRect.left + dx * em, top: blockRect.top + dy * em, height: h * em, selection };
+    return visible(root, {
+      x: blockRect.left - block.scrollLeft + dx * em,
+      top: blockRect.top + dy * em,
+      height: h * em,
+      selection,
+    });
   }
   const line = after ?? before ?? blockRect;
   if (!Number.isFinite(x) || line.height <= 0) return null;
-  return { x, top: line.top, height: line.height, selection };
+  return visible(root, { x, top: line.top, height: line.height, selection });
 }
 
 export function isCaret(value: unknown): value is CaretPosition {

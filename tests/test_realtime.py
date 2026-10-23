@@ -278,13 +278,13 @@ def test_only_editors_broadcast_cursors(server, app, alice, bob, graph_id):
     a.handshake("owner")
     b = Peer(server, app, graph_id, bob.user_id)
     b.handshake("viewer")
-    cursor = {"cursor": {"kind": "graph", "x": 1, "y": 2}, "pressed": True, "editing": "3", "caret": {"id": "3"}}
+    cursor = {"cursor": {"kind": "graph", "x": 1, "y": 2}, "pressed": True, "editing": "3", "caret": {"id": "3"}, "lead": "caret"}
     cursor["live"] = {"3": {"latex": "a=1"}}
 
     b.ws.send_bytes(awareness(22, 1, {"selected": "1", **cursor}))
     kind, [(_, _, state)] = a.recv()
     assert kind == "awareness" and state["selected"] == "1"
-    assert not {"cursor", "pressed", "editing", "caret", "live"} & state.keys()
+    assert not {"cursor", "pressed", "editing", "caret", "live", "lead"} & state.keys()
 
     a.ws.send_bytes(awareness(11, 1, cursor))
     kind, [(_, _, state)] = b.recv()

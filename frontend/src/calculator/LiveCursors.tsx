@@ -21,7 +21,8 @@ function readRemotes(session: GraphSession): Remote[] {
     const cursor = isAnchor(state.cursor) ? state.cursor : null;
     const editing = typeof state.editing === "string" ? state.editing : null;
     const caret = isCaret(state.caret) ? state.caret : null;
-    remotes.push({ clientId, user, cursor, pressed: state.pressed === true, editing, caret });
+    const lead = state.lead === "pointer" || state.lead === "caret" ? state.lead : null;
+    remotes.push({ clientId, user, cursor, pressed: state.pressed === true, editing, caret, lead });
   }
   return remotes.length ? remotes : NO_ONE;
 }

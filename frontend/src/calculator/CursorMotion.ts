@@ -20,6 +20,7 @@ export type RemoteCursor = {
   pressed: boolean;
   editing: string | null;
   caret: CaretPosition | null;
+  lead: "pointer" | "caret" | null;
   leaving?: boolean;
 };
 
@@ -119,7 +120,8 @@ export class CursorMotion {
       const caretMoved = !!remote.caret && JSON.stringify(remote.caret) !== JSON.stringify(track.caret);
       const startedEditing = !!remote.editing && remote.editing !== track.editing;
       const pointerMoved = !!remote.cursor && !sameAnchor(track.anchor, remote.cursor);
-      if (caretMoved || startedEditing) track.tag.prefer = "caret";
+      if (remote.lead) track.tag.prefer = remote.lead;
+      else if (caretMoved || startedEditing) track.tag.prefer = "caret";
       else if (pointerMoved) track.tag.prefer = "pointer";
       if (!sameAnchor(track.anchor, remote.cursor)) {
         const target = this.locate(remote.cursor);
@@ -305,7 +307,7 @@ export class CursorMotion {
       : "none";
     if (style === tag.style) return;
     tag.style = style;
-    el.style.display = visible ? "" : "none";
+    el.style.display = visible ? "block" : "none";
     if (!visible) return;
     el.style.transform = `translate3d(${tag.pos!.x.toFixed(1)}px, ${tag.pos!.y.toFixed(1)}px, 0)`;
     el.style.opacity = tag.opacity < 1 ? tag.opacity.toFixed(2) : "";

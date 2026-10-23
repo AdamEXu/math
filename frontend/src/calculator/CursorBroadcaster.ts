@@ -19,6 +19,7 @@ export type BroadcastHooks = {
 
 export class CursorBroadcaster {
   private pressed = false;
+  private lead: "pointer" | "caret" = "pointer";
   private pointer: Point | null = null;
   private inside: Point | null = null;
   private leftAt: Point | null = null;
@@ -42,10 +43,12 @@ export class CursorBroadcaster {
     };
     on<PointerEvent>(window, "pointermove", (event) => {
       this.pointer = { x: event.clientX, y: event.clientY };
+      this.lead = "pointer";
       this.schedule();
     });
     on<PointerEvent>(window, "pointerdown", (event) => {
       this.pointer = { x: event.clientX, y: event.clientY };
+      this.lead = "pointer";
       this.setPressed(event.button === 0 && root.contains(event.target as Node));
       this.schedule();
     });
@@ -68,6 +71,9 @@ export class CursorBroadcaster {
       if (document.visibilityState === "hidden") this.hide();
     });
     on(root, "scroll", () => this.schedule());
+    on(root, "keydown", () => {
+      this.lead = "caret";
+    });
     const later = () => window.setTimeout(() => this.schedule());
     for (const type of ["keydown", "keyup", "input", "pointerup"]) on(root, type, later);
     on(root, "focusin", () => this.schedule(), false);
@@ -126,7 +132,7 @@ export class CursorBroadcaster {
       caret = null;
     }
     const live = this.pressed ? this.hooks.live() : null;
-    this.publish({ cursor, pressed: !!cursor && this.pressed, editing, caret, live });
+    this.publish({ cursor, pressed: !!cursor && this.pressed, editing, caret, live, lead: this.lead });
     if (exiting) this.timer = window.setTimeout(() => this.send(), SEND_MS);
   }
 
