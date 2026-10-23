@@ -1,18 +1,14 @@
 import {
-  Atom, Book, Bookmark, Calculator, Cat, ChartLine, ChartSpline, Check, ChevronRight, CircleAlert,
-  CircleCheck, CloudCheck, CloudOff, Code, Dog, EllipsisVertical, ExternalLink, Flag, Flame, FlaskConical,
-  Folder, FolderInput, FolderMinus, FolderPlus, Gamepad2, Globe, GraduationCap, Heart, House, Leaf,
-  Lightbulb, LoaderCircle, LogOut, Moon, Music, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Pi, Rocket,
-  Settings, Shapes, Sigma, SquareFunction, Star, Sun, Trash2, Users, Zap,
+  ChartSpline, Check, ChevronRight, CircleAlert, CircleCheck, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, Folder,
+  FolderInput, FolderMinus, FolderPlus, House, LoaderCircle, LogOut, PanelLeftClose, PanelLeftOpen, Pencil, Search,
+  Settings, Trash2, Users,
   createIcons,
 } from "lucide";
 
 const ICONS = {
-  Atom, Book, Bookmark, Calculator, Cat, ChartLine, ChartSpline, Check, ChevronRight, CircleAlert,
-  CircleCheck, CloudCheck, CloudOff, Code, Dog, EllipsisVertical, ExternalLink, Flag, Flame, FlaskConical,
-  Folder, FolderInput, FolderMinus, FolderPlus, Gamepad2, Globe, GraduationCap, Heart, House, Leaf,
-  Lightbulb, LoaderCircle, LogOut, Moon, Music, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Pi, Rocket,
-  Settings, Shapes, Sigma, SquareFunction, Star, Sun, Trash2, Users, Zap,
+  ChartSpline, Check, ChevronRight, CircleAlert, CircleCheck, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, Folder,
+  FolderInput, FolderMinus, FolderPlus, House, LoaderCircle, LogOut, PanelLeftClose, PanelLeftOpen, Pencil, Search,
+  Settings, Trash2, Users,
 };
 
 export function renderIcons() {

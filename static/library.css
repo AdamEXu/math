@@ -174,7 +174,20 @@ body { background: #fff; }
 }
 .swatch:hover { transform: scale(1.1); }
 .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--swatch); }
-.icon-grid { display: grid; grid-template-columns: repeat(6, 32px); gap: 4px; padding: 0 12px; }
+.icon-search { position: relative; margin: 0 12px 8px; }
+.icon-search svg { position: absolute; left: 8px; top: 8px; width: 16px; height: 16px; color: #999; pointer-events: none; }
+.icon-search-input {
+  width: 100%; height: 32px; padding: 0 8px 0 30px; border: 1px solid var(--line); border-radius: 4px;
+  font-size: 14px; color: var(--ink); background: #fff;
+}
+.icon-search-input::placeholder { color: #999; }
+.icon-search-input:focus { outline: 0; border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.icon-scroll { position: relative; height: 216px; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px; }
+.icon-grid { display: grid; grid-template-columns: repeat(6, 32px); gap: 4px; justify-content: space-between; }
+.icon-section { grid-column: 1 / -1; padding: 6px 2px 2px; font-size: 12px; color: var(--muted); }
+.icon-section:first-child { padding-top: 0; }
+.icon-sentinel { height: 1px; }
+.icon-status { margin: 0; padding: 24px 0; text-align: center; font-size: 14px; color: var(--muted); }
 .editor-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 12px 0; margin-top: 12px; border-top: 1px solid #eee; }
 .icon-choice {
   width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0;

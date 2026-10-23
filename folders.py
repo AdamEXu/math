@@ -5,12 +5,8 @@ from flask import Blueprint, abort, g, request
 
 from auth import fetch_only, login_required
 from db import get_db, now_ms, uuid7, write_transaction
+from lucide import ICON_NAMES
 
-FOLDER_ICONS = (
-    "folder", "star", "heart", "book", "flask-conical", "atom", "calculator", "sigma", "pi", "square-function",
-    "chart-line", "shapes", "gamepad-2", "music", "palette", "rocket", "globe", "lightbulb", "graduation-cap",
-    "pencil", "bookmark", "flag", "zap", "flame", "leaf", "sun", "moon", "cat", "dog", "code",
-)
 FOLDER_COLORS = {
     "#737373": "Grey",
     "#c74440": "Red",
@@ -85,7 +81,7 @@ def folder_changes(payload, require_name):
             abort(400, error)
         changes["name"] = name
     if "icon" in payload:
-        if payload["icon"] not in FOLDER_ICONS:
+        if not isinstance(payload["icon"], str) or payload["icon"] not in ICON_NAMES:
             abort(400, "Unknown icon.")
         changes["icon"] = payload["icon"]
     if "color" in payload:

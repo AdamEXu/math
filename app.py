@@ -9,6 +9,7 @@ from auth import auth_bp, dev_login_email
 from db import close_db
 from folders import folders_bp
 from graphs import MAX_IMAGE_BYTES, graphs_bp
+from lucide import lucide_svg
 from users import avatar_hue, avatar_initial, avatar_url
 
 app = Flask(__name__)
@@ -40,6 +41,7 @@ def current_user():
         "avatar_url": avatar_url,
         "avatar_initial": avatar_initial,
         "avatar_hue": avatar_hue,
+        "lucide_svg": lucide_svg,
     }
 
 

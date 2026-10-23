@@ -10,7 +10,8 @@ from pycrdt import Doc, Map, Text, merge_updates
 
 from auth import fetch_only, login_required, same_origin
 from db import INIT_HOOKS, get_db, now_ms, uuid7, write_transaction
-from folders import FOLDER_COLORS, FOLDER_ICONS, folder_json, owned_folder, place_graph, user_folders
+from folders import FOLDER_COLORS, folder_json, owned_folder, place_graph, user_folders
+from lucide import ICON_MARKUP, LUCIDE_VERSION
 
 CHECKPOINT_EVERY = 200
 MAX_UPDATES_PER_REQUEST = 500
@@ -147,8 +148,10 @@ def render_library(view):
         (g.user["id"],),
     ).fetchall()
     folders = [folder_json(row) for row in user_folders(g.user["id"])]
+    icons = {folder["icon"]: ICON_MARKUP.get(folder["icon"], "") for folder in folders}
     return render_template(
-        "library.html", graphs=rows, folders=folders, view=view, folder_icons=FOLDER_ICONS, folder_colors=FOLDER_COLORS
+        "library.html", graphs=rows, folders=folders, view=view, folder_colors=FOLDER_COLORS, folder_icon_markup=icons,
+        lucide_version=LUCIDE_VERSION,
     )
 
 

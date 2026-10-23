@@ -48,7 +48,9 @@ def test_create_folder_defaults_and_order(app, alice):
         {"name": "x" * 61},
         {"name": "a\x00b"},
         {"name": 5},
-        {"name": "ok", "icon": "skull"},
+        {"name": "ok", "icon": "not-an-icon"},
+        {"name": "ok", "icon": "Folder"},
+        {"name": "ok", "icon": ["folder"]},
         {"name": "ok", "icon": None},
         {"name": "ok", "color": "#ff0000"},
         {"name": "ok", "color": "red"},
@@ -59,6 +61,22 @@ def test_create_folder_validation(app, alice, payload):
     assert res.status_code == 400
     assert "error" in res.get_json()
     assert rows(app, "SELECT COUNT(*) FROM folders") == [(0,)]
+
+
+def test_any_lucide_icon_is_accepted_and_rendered_server_side(alice):
+    folder = make_folder(alice, "Bio", icon="dna", color="#388c46")
+    assert folder["icon"] == "dna"
+    page = alice.get(f"/folders/{folder['id']}").get_data(as_text=True)
+    assert '<svg xmlns="http://www.w3.org/2000/svg"' in page and 'class="lucide lucide-dna"' in page
+    assert '"icons": {"dna": "\\u003c' in page
+
+
+def test_vendored_icon_set_matches_pinned_lucide():
+    import lucide
+
+    assert lucide.LUCIDE_VERSION == "1.61.0"
+    assert len(lucide.ICON_NAMES) > 1500
+    assert {"folder", "pi", "dna", "triangle", "sigma"} <= lucide.ICON_NAMES
 
 
 def test_update_folder(alice):

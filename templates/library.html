@@ -3,7 +3,7 @@
 {%- macro folder_row(folder, active=False) -%}
 <div class="folder-row{% if active %} active{% endif %}" data-folder-id="{{ folder.id }}">
   <a class="side-item folder-item{% if active %} active{% endif %}" href="{{ url_for('graphs.folder', folder_id=folder.id) if folder.id else '' }}" data-view="{{ folder.id }}" data-tip="{{ folder.name }}" style="--folder-color: {{ folder.color }}" draggable="false">
-    <span class="folder-icon"><i data-lucide="{{ folder.icon }}"></i></span><span class="side-label">{{ folder.name }}</span>
+    <span class="folder-icon" data-icon="{{ folder.icon }}">{% if folder.icon %}{{ lucide_svg(folder.icon) }}{% endif %}</span><span class="side-label">{{ folder.name }}</span>
   </a>
   <button class="side-kebab" type="button" aria-label="Folder options" aria-haspopup="dialog"><i data-lucide="ellipsis-vertical"></i></button>
 </div>
@@ -120,7 +120,7 @@
     </main>
   </div>
 
-  <template id="folder-row-template">{{ folder_row({"id": "", "name": "", "icon": "folder", "color": "#737373"}) }}</template>
+  <template id="folder-row-template">{{ folder_row({"id": "", "name": "", "icon": "", "color": "#737373"}) }}</template>
 
   <div class="menu folder-menu" id="folder-menu" role="menu" hidden>
     <button class="menu-item" type="button" role="menuitem" data-action="edit"><i data-lucide="pencil"></i>Edit folder</button>
@@ -130,7 +130,7 @@
   <form class="popover folder-editor" id="folder-editor" role="dialog" aria-labelledby="folder-editor-heading" hidden>
     <div class="editor-heading" id="folder-editor-heading">Edit folder</div>
     <div class="side-item folder-item active editor-preview" aria-hidden="true">
-      <span class="folder-icon"><i data-lucide="folder"></i></span><span class="side-label"></span>
+      <span class="folder-icon" data-icon="folder">{{ lucide_svg("folder") }}</span><span class="side-label"></span>
     </div>
     <input class="editor-name" type="text" maxlength="60" autocomplete="off" spellcheck="false" aria-label="Folder name" placeholder="Folder name">
     <div class="pop-label">Color</div>
@@ -140,10 +140,14 @@
       {% endfor %}
     </div>
     <div class="pop-label">Icon</div>
-    <div class="icon-grid">
-      {% for icon in folder_icons %}
-      <button class="icon-choice" type="button" data-icon="{{ icon }}" aria-label="{{ icon | replace('-', ' ') }}"><i data-lucide="{{ icon }}"></i></button>
-      {% endfor %}
+    <div class="icon-search">
+      <i data-lucide="search"></i>
+      <input class="icon-search-input" type="search" placeholder="Search icons" autocomplete="off" spellcheck="false" aria-label="Search icons">
+    </div>
+    <div class="icon-scroll" id="icon-scroll" data-src="{{ url_for('static', filename='lucide/icons.json', v=lucide_version) }}">
+      <div class="icon-grid" id="icon-grid" role="listbox" aria-label="Icons"></div>
+      <div class="icon-sentinel"></div>
+      <p class="icon-status" hidden></p>
     </div>
     <div class="editor-actions">
       <button class="btn-secondary" type="button" data-action="cancel">Cancel</button>
@@ -153,6 +157,6 @@
 
   <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-  <script type="application/json" id="library-data">{{ {"folders": folders, "view": view} | tojson }}</script>
+  <script type="application/json" id="library-data">{{ {"folders": folders, "view": view, "icons": folder_icon_markup} | tojson }}</script>
 </body>
 </html>

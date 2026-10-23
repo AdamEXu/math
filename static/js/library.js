@@ -65,11 +65,38 @@ const failed = (error) => {
   showToast("Couldn't save that change. Try again.");
 };
 
+const SVG_OPEN =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+  ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+const iconMarkup = new Map(Object.entries(data.icons));
+let allIcons = null;
+
+function iconSvg(name) {
+  return `${SVG_OPEN} class="lucide lucide-${name}">${iconMarkup.get(name) ?? ""}</svg>`;
+}
+
 function setIcon(slot, name) {
-  const icon = document.createElement("i");
-  icon.setAttribute("data-lucide", name);
-  slot.replaceChildren(icon);
-  renderIcons();
+  slot.innerHTML = iconSvg(name);
+}
+
+function loadIcons() {
+  allIcons ??= fetch(document.getElementById("icon-scroll").dataset.src)
+    .then((res) => {
+      if (!res.ok) throw new Error(`icons failed: ${res.status}`);
+      return res.json();
+    })
+    .then(({ icons }) => {
+      const entries = Object.entries(icons).map(([name, [markup, tags]]) => {
+        iconMarkup.set(name, markup);
+        return { name, tags };
+      });
+      return { entries, byName: new Map(entries.map((entry) => [entry.name, entry])) };
+    })
+    .catch((error) => {
+      allIcons = null;
+      throw error;
+    });
+  return allIcons;
 }
 
 function isCollapsed() {
@@ -217,10 +244,6 @@ function appendRow(folder) {
   fillRow(row, folder);
 }
 
-for (const row of folderList.querySelectorAll(".folder-row")) {
-  row.querySelector(".folder-icon").dataset.icon = folders.get(row.dataset.folderId).icon;
-}
-
 function updateFolder(folder) {
   folders.set(folder.id, folder);
   const row = rowFor(folder.id);
@@ -265,11 +288,106 @@ function syncEditor() {
   for (const swatch of editor.querySelectorAll(".swatch")) {
     swatch.setAttribute("aria-pressed", String(swatch.dataset.color === draft.color));
   }
-  for (const choice of editor.querySelectorAll(".icon-choice")) {
-    choice.setAttribute("aria-pressed", String(choice.dataset.icon === draft.icon));
-  }
+  markPressedIcon();
   editorSave.disabled = !name;
 }
+
+const SUGGESTED_ICONS = [
+  "folder", "star", "heart", "bookmark", "flag", "pi", "sigma", "infinity", "radical", "square-function",
+  "chart-spline", "chart-line", "chart-column", "chart-pie", "calculator", "ruler", "triangle-right", "shapes",
+  "atom", "flask-conical", "dna", "microscope", "telescope", "brain", "magnet", "book", "book-open",
+  "notebook-pen", "graduation-cap", "school", "pencil", "lightbulb", "globe", "earth", "rocket", "eighth-notes",
+  "palette", "code", "gamepad-2", "trophy", "zap", "flame", "leaf", "sun", "moon", "cat", "dog", "coffee",
+];
+const ICON_CHUNK = 120;
+const iconScroll = document.getElementById("icon-scroll");
+const iconGrid = document.getElementById("icon-grid");
+const iconStatus = iconScroll.querySelector(".icon-status");
+const iconSearch = editor.querySelector(".icon-search-input");
+let iconQueue = [];
+
+function markPressedIcon() {
+  for (const choice of iconGrid.querySelectorAll(".icon-choice[aria-pressed=true]")) {
+    choice.setAttribute("aria-pressed", "false");
+  }
+  const current = editing && iconGrid.querySelectorAll(`.icon-choice[data-icon="${CSS.escape(editing.draft.icon)}"]`);
+  for (const choice of current ?? []) choice.setAttribute("aria-pressed", "true");
+}
+
+function iconScore(entry, terms) {
+  let worst = 0;
+  for (const term of terms) {
+    let score;
+    if (entry.name === term) score = 0;
+    else if (entry.name.startsWith(term)) score = 1;
+    else if (entry.name.split("-").some((part) => part.startsWith(term))) score = 2;
+    else if (entry.tags.some((tag) => tag === term)) score = 3;
+    else if (entry.name.includes(term)) score = 4;
+    else if (entry.tags.some((tag) => tag.split(/[\s-]/).some((word) => word.startsWith(term)))) score = 5;
+    else return null;
+    worst = Math.max(worst, score);
+  }
+  return worst;
+}
+
+function iconItems({ entries, byName }, query) {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) {
+    const suggested = SUGGESTED_ICONS.filter((name) => byName.has(name));
+    return [{ label: "Suggested" }, ...suggested, { label: "All icons" }, ...entries.map((entry) => entry.name)];
+  }
+  const scored = [];
+  for (const entry of entries) {
+    const score = iconScore(entry, terms);
+    if (score !== null) scored.push([score, entry.name]);
+  }
+  scored.sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1]));
+  return scored.map(([, name]) => name);
+}
+
+function renderIconChunk() {
+  if (!iconQueue.length) return;
+  const html = iconQueue.splice(0, ICON_CHUNK).map((item) => {
+    if (typeof item !== "string") return `<div class="icon-section">${item.label}</div>`;
+    const label = item.replaceAll("-", " ");
+    return `<button class="icon-choice" type="button" role="option" data-icon="${item}" aria-label="${label}" title="${label}" aria-pressed="false">${iconSvg(item)}</button>`;
+  });
+  iconGrid.insertAdjacentHTML("beforeend", html.join(""));
+  markPressedIcon();
+}
+
+async function renderIconGrid() {
+  const query = iconSearch.value.trim();
+  iconGrid.replaceChildren();
+  iconScroll.scrollTop = 0;
+  iconQueue = [];
+  let icons;
+  try {
+    iconStatus.hidden = !!allIcons;
+    iconStatus.textContent = "Loading icons...";
+    icons = await loadIcons();
+  } catch (error) {
+    console.error(error);
+    iconStatus.textContent = "Couldn't load icons.";
+    iconStatus.hidden = false;
+    return;
+  }
+  if (query !== iconSearch.value.trim()) return;
+  iconQueue = iconItems(icons, query);
+  iconStatus.textContent = "No icons match.";
+  iconStatus.hidden = iconQueue.length > 0;
+  renderIconChunk();
+  while (iconQueue.length && iconScroll.scrollHeight <= iconScroll.clientHeight + 200) renderIconChunk();
+}
+
+new IntersectionObserver((entries) => {
+  if (entries.some((entry) => entry.isIntersecting)) renderIconChunk();
+}, { root: iconScroll, rootMargin: "200px" }).observe(iconScroll.querySelector(".icon-sentinel"));
+
+iconSearch.addEventListener("input", renderIconGrid);
+iconSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") event.preventDefault();
+});
 
 function openEditor(id, anchor) {
   closeMenus();
@@ -280,7 +398,9 @@ function openEditor(id, anchor) {
   editor.querySelector(".editor-heading").textContent = id ? "Edit folder" : "New folder";
   editorSave.textContent = id ? "Save" : "Create";
   editorName.value = folder.name;
+  iconSearch.value = "";
   syncEditor();
+  renderIconGrid();
   rowFor(id ?? "")?.classList.add("menu-open");
   placeFloating(editor, ...anchorPoint(anchor));
   editorName.focus();
@@ -453,10 +573,14 @@ function menuButton(label, iconSlot, onClick) {
 function iconSlot(name, color) {
   const slot = document.createElement("span");
   slot.className = "folder-icon";
-  if (color) slot.style.setProperty("--folder-color", color);
-  const icon = document.createElement("i");
-  icon.setAttribute("data-lucide", name);
-  slot.append(icon);
+  if (color) {
+    slot.style.setProperty("--folder-color", color);
+    setIcon(slot, name);
+  } else {
+    const icon = document.createElement("i");
+    icon.setAttribute("data-lucide", name);
+    slot.append(icon);
+  }
   return slot;
 }
 
