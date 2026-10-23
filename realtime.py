@@ -7,7 +7,7 @@ from functools import partial
 import anyio
 from starlette.websockets import WebSocket
 
-from access import at_least, graph_role
+from access import GRAPH_ACCESS_QUERY, LISTED, at_least, graph_role
 from auth import allowed_origins
 from db import get_db, now_ms
 from docstore import GraphDoc, graph_lock
@@ -29,9 +29,11 @@ CLOSE_TOO_SLOW = 4408
 
 MAX_QUEUED = 2000
 MAX_AWARENESS_BYTES = 16 << 10
+MAX_WATCHED = 2000
 
 log = logging.getLogger(__name__)
 _rooms = {}
+_watchers = {}
 
 
 class ProtocolError(Exception):
@@ -146,8 +148,14 @@ class Room:
         self.graph_id = graph_doc.graph_id
         self.graph_doc = graph_doc
         self.loop = loop
-        self.peers = set()
+        self.peers = {}
         self.awareness = {}
+
+    def users(self):
+        seen = {}
+        for peer in list(self.peers):
+            seen.setdefault(peer.user_id, peer.presence)
+        return list(seen.values())
 
     def broadcast(self, message, sender=None):
         for peer in list(self.peers):
@@ -217,6 +225,57 @@ def discard(room):
     room.loop.call_soon_threadsafe(room.close_all, CLOSE_ERROR)
 
 
+def graph_users(graph_id):
+    room = _rooms.get(graph_id)
+    return room.users() if room else []
+
+
+def notify_presence(graph_id):
+    watchers = _watchers.get(graph_id)
+    if watchers:
+        message = {graph_id: graph_users(graph_id)}
+        for watcher in list(watchers):
+            watcher.push(message)
+
+
+class Watcher:
+    def __init__(self, websocket, user_id):
+        self.websocket = websocket
+        self.user_id = user_id
+        self.graph_ids = set()
+        self.queue = asyncio.Queue()
+
+    def push(self, graphs):
+        visible = {
+            graph_id: [user for user in users if user["id"] != self.user_id] for graph_id, users in graphs.items()
+        }
+        if self.queue.qsize() < MAX_QUEUED:
+            self.queue.put_nowait(json.dumps({"presence": visible}, separators=(",", ":")))
+
+    def watch(self, graph_ids):
+        for graph_id in self.graph_ids - graph_ids:
+            watchers = _watchers.get(graph_id)
+            if watchers:
+                watchers.discard(self)
+                if not watchers:
+                    del _watchers[graph_id]
+        added = graph_ids - self.graph_ids
+        for graph_id in added:
+            _watchers.setdefault(graph_id, set()).add(self)
+        self.graph_ids = graph_ids
+        if added:
+            self.push({graph_id: graph_users(graph_id) for graph_id in added})
+
+    async def pump(self):
+        while True:
+            await self.websocket.send_text(await self.queue.get())
+
+
+def listed_graph_ids(user_id):
+    rows = get_db().execute(GRAPH_ACCESS_QUERY + LISTED, {"user": user_id}).fetchall()
+    return {row["id"] for row in rows}
+
+
 def reauthorize(graph_id):
     room = _rooms.get(graph_id)
     if room is None:
@@ -243,9 +302,14 @@ def session_user_id(flask_app, cookies):
     return data.get("user_id") if isinstance(data, dict) else None
 
 
-def authorize(graph_id, user_id):
+def signed_in_user(user_id):
     user = get_user(user_id) if user_id else None
-    if user is None or not user["handle"]:
+    return user if user is not None and user["handle"] else None
+
+
+def authorize(graph_id, user_id):
+    user = signed_in_user(user_id)
+    if user is None:
         return CLOSE_UNAUTHORIZED, None, None
     role = graph_role(get_db(), graph_id, user_id)
     if role is None:
@@ -259,13 +323,13 @@ def join(graph_id, peer, loop):
         if room is None:
             room = Room(GraphDoc(get_db(), graph_id), loop)
             _rooms[graph_id] = room
-        room.peers.add(peer)
+        room.peers[peer] = None
         return room, room.graph_doc.state_vector()
 
 
 def leave(room, peer):
     with graph_lock(room.graph_id):
-        room.peers.discard(peer)
+        room.peers.pop(peer, None)
         if not room.peers and _rooms.get(room.graph_id) is room:
             del _rooms[room.graph_id]
 
@@ -306,7 +370,7 @@ async def handle(room, peer, data, run):
             room.update_awareness(peer, payload)
 
 
-def graph_socket(flask_app):
+def in_app(flask_app):
     async def run(fn, *args):
         def call():
             with flask_app.app_context():
@@ -314,9 +378,21 @@ def graph_socket(flask_app):
 
         return await anyio.to_thread.run_sync(call)
 
+    return run
+
+
+async def same_origin(websocket):
+    if websocket.headers.get("origin") in allowed_origins():
+        return True
+    await websocket.close(CLOSE_FORBIDDEN)
+    return False
+
+
+def graph_socket(flask_app):
+    run = in_app(flask_app)
+
     async def endpoint(websocket: WebSocket):
-        if websocket.headers.get("origin") not in allowed_origins():
-            await websocket.close(CLOSE_FORBIDDEN)
+        if not await same_origin(websocket):
             return
         try:
             graph_id = str(uuid.UUID(websocket.path_params["graph_id"]))
@@ -331,6 +407,7 @@ def graph_socket(flask_app):
 
         peer = Peer(websocket, user, role)
         room, state_vector = await run(join, graph_id, peer, asyncio.get_running_loop())
+        notify_presence(graph_id)
         pump = asyncio.create_task(peer.pump())
         try:
             peer.send(role_message(role))
@@ -352,8 +429,40 @@ def graph_socket(flask_app):
         finally:
             room.drop_awareness(peer)
             await run(leave, room, peer)
+            notify_presence(graph_id)
             if peer.closing:
                 await asyncio.wait([pump], timeout=5)
+            pump.cancel()
+
+    return endpoint
+
+
+def presence_socket(flask_app):
+    run = in_app(flask_app)
+
+    async def endpoint(websocket: WebSocket):
+        if not await same_origin(websocket):
+            return
+        await websocket.accept()
+        user = await run(signed_in_user, session_user_id(flask_app, websocket.cookies))
+        if user is None:
+            await websocket.close(CLOSE_UNAUTHORIZED)
+            return
+        watcher = Watcher(websocket, user["id"])
+        pump = asyncio.create_task(watcher.pump())
+        try:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    break
+                try:
+                    requested = json.loads(message.get("text") or "null")["watch"]
+                    requested = {str(uuid.UUID(graph_id)) for graph_id in requested[:MAX_WATCHED]}
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    continue
+                watcher.watch(requested & await run(listed_graph_ids, user["id"]))
+        finally:
+            watcher.watch(set())
             pump.cancel()
 
     return endpoint

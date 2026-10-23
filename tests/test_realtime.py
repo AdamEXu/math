@@ -8,7 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 import realtime
 from asgi import app as asgi_app
 from realtime import ACK_MESSAGE, Reader, awareness_message, role_message, sync_message
-from tests.conftest import FETCH, ORIGIN, make_user
+from tests.conftest import FETCH, ORIGIN, make_user, new_graph
 from tests.test_graphs import Writer, post_updates, rows
 
 
@@ -276,3 +276,83 @@ def test_role_message_format():
     assert Reader(role_message("viewer")[1:]).string() == "viewer"
     with pytest.raises(realtime.ProtocolError):
         Reader(b"\xff").uint()
+
+
+class Feed:
+    def __init__(self, server, app, user_id, origin=ORIGIN):
+        headers = {"origin": origin, "cookie": f"session={cookie(app, user_id)}"}
+        self.socket = server.websocket_connect("/ws/presence", headers=headers)
+        self.ws = self.socket.__enter__()
+        OPEN.append(self)
+
+    def watch(self, *graph_ids):
+        self.ws.send_text(json.dumps({"watch": list(graph_ids)}))
+
+    def recv(self):
+        return {graph_id: [user["handle"] for user in users] for graph_id, users in self.ws.receive_json()["presence"].items()}
+
+    close = Peer.close
+
+
+def test_room_presence_is_per_user_across_tabs(server, app, alice, bob, graph_id):
+    share(alice, graph_id, "bob", "editor")
+    tabs = [Peer(server, app, graph_id, bob.user_id) for _ in range(2)]
+    for tab in tabs:
+        tab.handshake("editor")
+    owner = Peer(server, app, graph_id, alice.user_id)
+    owner.handshake("owner")
+    assert [user["handle"] for user in realtime.graph_users(graph_id)] == ["bob", "alice"]
+    tabs[0].close()
+    assert [user["handle"] for user in realtime.graph_users(graph_id)] == ["bob", "alice"]
+    tabs[1].close()
+    owner.ws.send_bytes(sync_message(realtime.SYNC_STEP1, owner.doc.get_state()))
+    while owner.recv()[0] != "sync":
+        pass
+    assert [user["handle"] for user in realtime.graph_users(graph_id)] == ["alice"]
+    owner.close()
+
+
+def test_library_presence_feed(server, app, alice, bob, graph_id):
+    share(alice, graph_id, "bob", "viewer")
+    hidden = new_graph(bob)
+    feed = Feed(server, app, alice.user_id)
+    feed.watch(graph_id, hidden, "garbage-id")
+    feed.watch(graph_id, hidden)
+    assert feed.recv() == {graph_id: []}
+
+    mine = Peer(server, app, graph_id, alice.user_id)
+    mine.handshake("owner")
+    assert feed.recv() == {graph_id: []}
+    tabs = [Peer(server, app, graph_id, bob.user_id) for _ in range(2)]
+    for tab in tabs:
+        tab.handshake("viewer")
+    assert feed.recv() == {graph_id: ["bob"]}
+    assert feed.recv() == {graph_id: ["bob"]}
+    elsewhere = Peer(server, app, hidden, bob.user_id)
+    elsewhere.handshake("owner")
+    tabs[0].close()
+    assert feed.recv() == {graph_id: ["bob"]}
+    tabs[1].close()
+    assert feed.recv() == {graph_id: []}
+
+    feed.watch()
+    tabs.append(Peer(server, app, graph_id, bob.user_id))
+    tabs[-1].handshake("viewer")
+    feed.watch(graph_id)
+    assert feed.recv() == {graph_id: ["bob"]}
+    for peer in (mine, elsewhere, tabs[-1]):
+        peer.close()
+    feed.close()
+    assert realtime._watchers == {}
+
+
+def test_presence_feed_requires_sign_in_and_origin(server, app, alice):
+    with pytest.raises(WebSocketDisconnect) as info:
+        Feed(server, app, alice.user_id, origin="https://evil.example")
+    assert info.value.code == realtime.CLOSE_FORBIDDEN
+    socket = server.websocket_connect("/ws/presence", headers={"origin": ORIGIN})
+    ws = socket.__enter__()
+    with pytest.raises(WebSocketDisconnect) as info:
+        ws.receive_text()
+    assert info.value.code == realtime.CLOSE_UNAUTHORIZED
+    socket.__exit__(None, None, None)
