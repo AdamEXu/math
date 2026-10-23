@@ -6,7 +6,7 @@ from flask import Blueprint, Response, current_app, g, redirect, request, send_f
 
 from auth import login_required, safe_next
 
-SERVER_PREFIXES = {"api", "auth", "static", "assets", "images", "graphs", "health", "login"}
+SERVER_PREFIXES = {"api", "auth", "static", "assets", "images", "graphs", "health", "login", "ws"}
 NOT_BUILT = "Frontend not built. Run `pnpm build` in frontend/, or use the Vite dev server."
 
 spa_bp = Blueprint("spa", __name__)

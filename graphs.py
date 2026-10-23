@@ -5,74 +5,67 @@ import re
 import uuid
 
 from flask import Blueprint, Response, abort, g, request, url_for
-from pycrdt import Doc, Map, Text, merge_updates
+from pycrdt import Doc
 
+import realtime
+from access import GRAPH_ACCESS_QUERY, LISTED, access_row, at_least, role_of
 from auth import fetch_only, login_required
 from db import INIT_HOOKS, get_db, now_ms, uuid7, write_transaction
+from docstore import EMPTY_UPDATE, GraphDoc, append_server_update, graph_lock, load_state, title_update
 from folders import owned_folder, place_graph
+from users import public_user_json
 
-CHECKPOINT_EVERY = 200
 MAX_UPDATES_PER_REQUEST = 500
 MAX_UPDATE_BYTES = 1 << 20
 MAX_THUMBNAIL_BYTES = 2 << 20
 MAX_IMAGE_BYTES = 10 << 20
-MAX_TITLE = 200
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"}
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 DEFAULT_TITLE = "Untitled Graph"
 DEFAULT_TITLE_RE = re.compile(r"Untitled Graph(?: \((\d+)\))?")
-EMPTY_UPDATE = Doc().get_update()
-GRAPH_QUERY = (
-    "SELECT graphs.id, graphs.title, graphs.updated_at, graphs.thumbnail_at, graph_placements.folder_id"
-    " FROM graphs LEFT JOIN graph_placements"
-    " ON graph_placements.graph_id = graphs.id AND graph_placements.user_id = :user"
-    " WHERE graphs.owner_id = :user AND graphs.deleted_at IS NULL"
-)
 
 graphs_bp = Blueprint("graphs", __name__)
 files_bp = Blueprint("files", __name__)
 
 
-def owned_graph(graph_id):
+def parse_graph_id(graph_id):
     try:
-        graph_id = str(uuid.UUID(graph_id))
+        return str(uuid.UUID(graph_id))
     except ValueError:
         abort(404)
-    row = get_db().execute(
-        "SELECT * FROM graphs WHERE id = ? AND owner_id = ? AND deleted_at IS NULL", (graph_id, g.user["id"])
-    ).fetchone()
-    if row is None:
+
+
+def accessible_graph(graph_id, minimum="viewer"):
+    row = access_row(get_db(), parse_graph_id(graph_id), g.user["id"])
+    role = role_of(row, g.user["id"]) if row else None
+    if role is None:
         abort(404)
-    return row
+    if not at_least(role, minimum):
+        abort(403)
+    return row, role
+
+
+def owner_json(row):
+    return public_user_json(
+        {
+            "id": row["owner_id"],
+            "handle": row["owner_handle"],
+            "display_name": row["owner_display_name"],
+            "google_picture_url": row["owner_google_picture_url"],
+        }
+    )
 
 
 def graph_json(row):
-    return {key: row[key] for key in ("id", "title", "updated_at", "thumbnail_at", "folder_id")}
+    data = {key: row[key] for key in ("id", "title", "updated_at", "thumbnail_at", "folder_id")}
+    data["role"] = role_of(row, g.user["id"])
+    data["owner"] = owner_json(row)
+    return data
 
 
 def graph_by_id(graph_id):
-    row = get_db().execute(GRAPH_QUERY + " AND graphs.id = :id", {"user": g.user["id"], "id": graph_id}).fetchone()
-    return graph_json(row)
-
-
-def load_state(db, graph_id):
-    checkpoint = db.execute(
-        "SELECT seq, state FROM checkpoints WHERE graph_id = ? ORDER BY seq DESC LIMIT 1", (graph_id,)
-    ).fetchone()
-    since = checkpoint["seq"] if checkpoint else 0
-    rows = db.execute(
-        "SELECT data FROM updates WHERE graph_id = ? AND seq > ? ORDER BY seq", (graph_id, since)
-    ).fetchall()
-    parts = ([checkpoint["state"]] if checkpoint else []) + [row["data"] for row in rows]
-    return (merge_updates(*parts) if parts else EMPTY_UPDATE), len(rows)
-
-
-def title_of(state):
-    doc = Doc()
-    doc.apply_update(state)
-    title = doc.get("meta", type=Map).get("title")
-    return "" if title is None else str(title).strip()[:MAX_TITLE]
+    return graph_json(access_row(get_db(), graph_id, g.user["id"]))
 
 
 def default_title(db, owner_id):
@@ -88,30 +81,6 @@ def default_title(db, owner_id):
     while n in used:
         n += 1
     return DEFAULT_TITLE if n == 1 else f"{DEFAULT_TITLE} ({n})"
-
-
-def title_update(state, title):
-    doc = Doc()
-    doc.apply_update(state)
-    before = doc.get_state()
-    meta = doc.get("meta", type=Map)
-    with doc.transaction():
-        current = meta.get("title")
-        if isinstance(current, Text):
-            del current[:]
-            current += title
-        else:
-            meta["title"] = Text(title)
-    return doc.get_update(before)
-
-
-def append_server_update(db, graph_id, author_id, data, now):
-    seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM updates WHERE graph_id = ?", (graph_id,)).fetchone()[0]
-    db.execute(
-        "INSERT INTO updates (graph_id, seq, ts, client_ts, author_id, client_update_id, data)"
-        " VALUES (?, ?, ?, NULL, ?, ?, ?)",
-        (graph_id, seq + 1, now, author_id, str(uuid.uuid4()), data),
-    )
 
 
 def backfill_untitled(db):
@@ -153,10 +122,22 @@ def parse_updates(payload):
     return parsed
 
 
+def record_link_visit(db, row):
+    if row["owner_id"] == g.user["id"] or row["member_role"] or not row["link_access"]:
+        return
+    db.execute(
+        "INSERT INTO graph_link_visits (user_id, graph_id, opened_at) VALUES (?, ?, ?)"
+        " ON CONFLICT (user_id, graph_id) DO UPDATE SET opened_at = excluded.opened_at",
+        (g.user["id"], row["id"], now_ms()),
+    )
+
+
 @graphs_bp.get("/graphs")
 @login_required
 def list_graphs():
-    rows = get_db().execute(GRAPH_QUERY + " ORDER BY graphs.updated_at DESC", {"user": g.user["id"]}).fetchall()
+    rows = get_db().execute(
+        GRAPH_ACCESS_QUERY + LISTED + " ORDER BY graphs.updated_at DESC", {"user": g.user["id"]}
+    ).fetchall()
     return {"graphs": [graph_json(row) for row in rows]}
 
 
@@ -186,23 +167,25 @@ def create():
 @graphs_bp.get("/graphs/<graph_id>")
 @login_required
 def show(graph_id):
-    return graph_by_id(owned_graph(graph_id)["id"])
+    row, _ = accessible_graph(graph_id)
+    return graph_json(row)
 
 
 @graphs_bp.delete("/graphs/<graph_id>")
 @login_required
 def delete(graph_id):
-    graph_id = owned_graph(graph_id)["id"]
+    graph_id = accessible_graph(graph_id, "owner")[0]["id"]
     db = get_db()
     with write_transaction(db):
         db.execute("UPDATE graphs SET deleted_at = ? WHERE id = ?", (now_ms(), graph_id))
+    realtime.reauthorize(graph_id)
     return {"ok": True}
 
 
 @graphs_bp.put("/graphs/<graph_id>/folder")
 @login_required
 def move(graph_id):
-    graph_id = owned_graph(graph_id)["id"]
+    graph_id = accessible_graph(graph_id)[0]["id"]
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or "folder_id" not in payload:
         abort(400)
@@ -217,46 +200,37 @@ def move(graph_id):
 @graphs_bp.get("/graphs/<graph_id>/doc")
 @login_required
 def load(graph_id):
-    graph = owned_graph(graph_id)
-    state, _ = load_state(get_db(), graph["id"])
+    row, _ = accessible_graph(graph_id)
+    db = get_db()
+    record_link_visit(db, row)
+    state, _ = load_state(db, row["id"])
     return Response(state, mimetype="application/octet-stream", headers={"Cache-Control": "no-store"})
 
 
 @graphs_bp.post("/graphs/<graph_id>/updates")
 @login_required
 def append_updates(graph_id):
-    graph_id = owned_graph(graph_id)["id"]
+    graph_id = accessible_graph(graph_id, "editor")[0]["id"]
     parsed = parse_updates(request.get_json(silent=True))
     db = get_db()
-    now = now_ms()
-    with write_transaction(db):
-        seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM updates WHERE graph_id = ?", (graph_id,)).fetchone()[0]
-        added = 0
-        for update_id, client_ts, data in parsed:
-            inserted = db.execute(
-                "INSERT OR IGNORE INTO updates (graph_id, seq, ts, client_ts, author_id, client_update_id, data)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (graph_id, seq + 1, now, client_ts, g.user["id"], update_id, data),
-            ).rowcount
-            seq += inserted
-            added += inserted
-        if added:
-            state, since_checkpoint = load_state(db, graph_id)
-            db.execute(
-                "UPDATE graphs SET title = ?, updated_at = ? WHERE id = ?", (title_of(state), now, graph_id)
-            )
-            if since_checkpoint >= CHECKPOINT_EVERY:
-                db.execute(
-                    "INSERT INTO checkpoints (graph_id, seq, ts, state) VALUES (?, ?, ?, ?)",
-                    (graph_id, seq, now, state),
-                )
+    with graph_lock(graph_id):
+        room = realtime.live_room(graph_id)
+        graph_doc = room.graph_doc if room else GraphDoc(db, graph_id)
+        try:
+            seq, deltas = graph_doc.apply_logged(db, parsed, g.user["id"], now_ms())
+        except BaseException:
+            if room:
+                realtime.discard(room)
+            raise
+    if room:
+        room.broadcast_updates(deltas)
     return {"acked": [update_id for update_id, _, _ in parsed], "seq": seq}
 
 
 @graphs_bp.post("/graphs/<graph_id>/thumbnail")
 @login_required
 def upload_thumbnail(graph_id):
-    graph_id = owned_graph(graph_id)["id"]
+    graph_id = accessible_graph(graph_id, "editor")[0]["id"]
     png = request.get_data()
     if not png.startswith(PNG_MAGIC) or len(png) > MAX_THUMBNAIL_BYTES:
         abort(400)
@@ -292,7 +266,7 @@ files_bp.add_url_rule(
 @files_bp.get("/graphs/<graph_id>/thumbnail.png")
 @login_required
 def thumbnail(graph_id):
-    graph_id = owned_graph(graph_id)["id"]
+    graph_id = accessible_graph(graph_id)[0]["id"]
     row = get_db().execute("SELECT png FROM thumbnails WHERE graph_id = ?", (graph_id,)).fetchone()
     if row is None:
         abort(404)
@@ -300,16 +274,14 @@ def thumbnail(graph_id):
     return Response(row["png"], mimetype="image/png", headers={"Cache-Control": cache})
 
 
+# Image URLs are content hashes, so knowing one already implies having seen the image in a graph you could
+# open. Any signed-in user may read them, which keeps images working for everyone a graph is shared with.
 @files_bp.get("/images/<sha>")
 @login_required
 def image(sha):
     if not SHA256_RE.fullmatch(sha):
         abort(404)
-    row = get_db().execute(
-        "SELECT images.mime, images.data FROM images JOIN image_owners USING (sha256)"
-        " WHERE sha256 = ? AND owner_id = ?",
-        (sha, g.user["id"]),
-    ).fetchone()
+    row = get_db().execute("SELECT mime, data FROM images WHERE sha256 = ?", (sha,)).fetchone()
     if row is None:
         abort(404)
     return Response(

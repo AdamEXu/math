@@ -6,6 +6,7 @@ import uuid
 import pytest
 from pycrdt import Doc, Map, Text
 
+import docstore
 import graphs
 from tests.conftest import FETCH, ORIGIN, new_graph
 
@@ -74,7 +75,9 @@ def test_new_graph_is_uuid7_with_graph_json(alice, graph_id):
     res = alice.get(f"/api/graphs/{graph_id}")
     assert res.status_code == 200
     body = res.get_json()
-    assert set(body) == {"id", "title", "updated_at", "thumbnail_at", "folder_id"}
+    assert set(body) == {"id", "title", "updated_at", "thumbnail_at", "folder_id", "role", "owner"}
+    assert body["role"] == "owner" and body["owner"]["id"] == alice.user_id and body["owner"]["handle"] == "alice"
+    assert "email" not in body["owner"]
     assert body["id"] == graph_id and body["title"] == "Untitled Graph"
     assert body["thumbnail_at"] is None and body["folder_id"] is None and isinstance(body["updated_at"], int)
 
@@ -165,7 +168,7 @@ def test_duplicate_update_ids_are_acked_but_not_appended(app, alice, graph_id):
 
 
 def test_checkpoint_written_and_load_uses_it(app, alice, graph_id, monkeypatch):
-    monkeypatch.setattr(graphs, "CHECKPOINT_EVERY", 5)
+    monkeypatch.setattr(docstore, "CHECKPOINT_EVERY", 5)
     writer = Writer(alice, graph_id)
     batch = [writer.edit(lambda m: m.__setitem__("title", Text("")))]
     for i in range(11):
@@ -179,7 +182,7 @@ def test_checkpoint_written_and_load_uses_it(app, alice, graph_id, monkeypatch):
 
 
 def test_out_of_order_update_survives_checkpoint(app, alice, graph_id, monkeypatch):
-    monkeypatch.setattr(graphs, "CHECKPOINT_EVERY", 1)
+    monkeypatch.setattr(docstore, "CHECKPOINT_EVERY", 1)
     writer = Writer(alice, graph_id)
     first = writer.edit(lambda m: m.__setitem__("title", Text("x")))
     second = writer.edit(lambda m: m["title"].insert(1, "y"))
@@ -226,7 +229,7 @@ def test_thumbnail_rejects_oversized_png(alice, graph_id, monkeypatch):
     assert alice.post(f"/api/graphs/{graph_id}/thumbnail", data=PNG, headers=FETCH).status_code == 400
 
 
-def test_image_upload_dedupes_and_checks_ownership(app, alice, bob):
+def test_image_upload_dedupes_and_any_signed_in_user_can_read(app, alice, bob):
     sha = hashlib.sha256(PNG).hexdigest()
     first = alice.post("/api/images", data=PNG, content_type="image/png", headers=FETCH)
     again = alice.post("/api/images", data=PNG, content_type="image/png", headers=FETCH)
@@ -235,7 +238,8 @@ def test_image_upload_dedupes_and_checks_ownership(app, alice, bob):
     res = alice.get(f"/images/{sha}")
     assert res.data == PNG and res.mimetype == "image/png"
     assert res.headers["X-Content-Type-Options"] == "nosniff" and "sandbox" in res.headers["Content-Security-Policy"]
-    assert bob.get(f"/images/{sha}").status_code == 404
+    assert bob.get(f"/images/{sha}").data == PNG
+    assert bob.get(f"/images/{'0' * 64}").status_code == 404
     assert bob.post("/api/images", data=PNG, content_type="image/png", headers=FETCH).status_code == 200
     assert bob.get(f"/images/{sha}").data == PNG
     assert rows(app, "SELECT COUNT(*) FROM images") == [(1,)]

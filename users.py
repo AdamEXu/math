@@ -145,3 +145,32 @@ def avatar_initial(user):
 
 def avatar_hue(user):
     return int(hashlib.sha256(user["id"].encode()).hexdigest(), 16) % 360
+
+
+def public_user_json(user):
+    return {
+        "id": user["id"],
+        "handle": user["handle"] or None,
+        "display_name": user["display_name"],
+        "avatar_url": avatar_url(user),
+        "avatar_hue": avatar_hue(user),
+        "avatar_initial": avatar_initial(user),
+    }
+
+
+def search_users(query, exclude_id, limit=8):
+    value = (query or "").strip()
+    if "@" in value.lstrip("@"):
+        row = get_db().execute("SELECT * FROM users WHERE email = ? AND id != ?", (value, exclude_id)).fetchone()
+        return [row] if row else []
+    prefix = normalize_handle(value)
+    if not prefix:
+        return []
+    pattern = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    return get_db().execute(
+        "SELECT * FROM users WHERE id != :me AND handle IS NOT NULL AND ("
+        " handle LIKE :p ESCAPE '\\' OR display_name LIKE :p ESCAPE '\\'"
+        " OR display_name LIKE '% ' || :p ESCAPE '\\' OR email LIKE :p ESCAPE '\\')"
+        " ORDER BY handle LIKE :p ESCAPE '\\' DESC, display_name COLLATE NOCASE LIMIT :limit",
+        {"me": exclude_id, "p": pattern, "limit": limit},
+    ).fetchall()

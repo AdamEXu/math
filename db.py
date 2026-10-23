@@ -81,6 +81,23 @@ CREATE TABLE IF NOT EXISTS images (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS graph_members (
+    graph_id TEXT NOT NULL REFERENCES graphs (id),
+    user_id TEXT NOT NULL REFERENCES users (id),
+    role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
+    added_by TEXT NOT NULL REFERENCES users (id),
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (graph_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS graph_members_user ON graph_members (user_id);
+
+CREATE TABLE IF NOT EXISTS graph_link_visits (
+    user_id TEXT NOT NULL REFERENCES users (id),
+    graph_id TEXT NOT NULL REFERENCES graphs (id),
+    opened_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, graph_id)
+);
+
 CREATE TABLE IF NOT EXISTS image_owners (
     sha256 TEXT NOT NULL REFERENCES images (sha256),
     owner_id TEXT NOT NULL REFERENCES users (id),
@@ -90,6 +107,7 @@ CREATE TABLE IF NOT EXISTS image_owners (
 
 ADDED_COLUMNS = {
     "users": {"google_picture_url": "TEXT"},
+    "graphs": {"link_access": "TEXT CHECK (link_access IN ('editor', 'viewer'))"},
 }
 
 INIT_HOOKS = []

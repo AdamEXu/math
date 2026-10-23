@@ -24,4 +24,4 @@ COPY . .
 COPY --from=frontend /frontend/dist ./frontend/dist
 
 EXPOSE 8000
-CMD ["uv", "run", "--no-sync", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "app:app"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -4,6 +4,7 @@ from werkzeug.exceptions import MethodNotAllowed
 from account import account_bp
 from folders import folders_bp
 from graphs import graphs_bp
+from sharing import sharing_bp
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -11,6 +12,7 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 api_bp.register_blueprint(account_bp)
 api_bp.register_blueprint(graphs_bp)
 api_bp.register_blueprint(folders_bp)
+api_bp.register_blueprint(sharing_bp)
 
 
 @api_bp.before_request
