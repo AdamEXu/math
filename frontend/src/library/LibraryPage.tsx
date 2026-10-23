@@ -1,6 +1,7 @@
 import { ChartSpline, Folder as FolderGlyph, Users } from "lucide-react";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { useMatch } from "react-router";
+import { DESMOS_LINK } from "../api/desmos";
 import { useFolders, useGraphs } from "../api/queries";
 import type { Folder, Graph, PublicUser } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
@@ -15,6 +16,7 @@ import { useLibraryPresence } from "../presence/useLibraryPresence";
 import { FolderEditor } from "./FolderEditor";
 import { FolderMenu } from "./FolderMenu";
 import { GraphCard } from "./GraphCard";
+import { ImportDesmosDialog } from "./ImportDesmosDialog";
 import { NewGraphButton } from "./NewGraphButton";
 import { Sidebar } from "./Sidebar";
 import { useLibraryActions } from "./useLibraryActions";
@@ -66,6 +68,7 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
   const [query, setQuery] = useState("");
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [importing, setImporting] = useState<{ link: string } | null>(null);
   const dragged = useRef<Graph | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   const key = viewKey(view);
@@ -77,6 +80,19 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
   useEffect(() => {
     if (mainRef.current) mainRef.current.scrollTop = 0;
   }, [key]);
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]")) return;
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!DESMOS_LINK.test(text)) return;
+      event.preventDefault();
+      closeMenus();
+      setImporting({ link: text.trim() });
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, []);
 
   const needle = query.trim().toLowerCase();
   const inViewGraphs = graphs.filter((graph) => inView(graph, view));
@@ -123,7 +139,10 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
 
         <main className="library" id="library" ref={mainRef}>
           <div className="toolbar">
-            <NewGraphButton onCreate={() => actions.createGraph(activeFolder?.id ?? null)} />
+            <NewGraphButton
+              onCreate={() => actions.createGraph(activeFolder?.id ?? null)}
+              onImport={() => setImporting({ link: "" })}
+            />
             <input
               id="search"
               className="search"
@@ -195,6 +214,14 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
             setMenu(null);
             void actions.deleteFolder(menu.folder, activeFolder?.id === menu.folder.id);
           }}
+        />
+      )}
+      {importing && (
+        <ImportDesmosDialog
+          key={importing.link}
+          initialLink={importing.link}
+          folderId={activeFolder?.id ?? null}
+          onDismiss={() => setImporting(null)}
         />
       )}
       {editing && (

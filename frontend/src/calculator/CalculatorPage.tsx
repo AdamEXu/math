@@ -15,6 +15,7 @@ import { NotFoundPage } from "../pages/NotFoundPage";
 import { type PresenceState, distinctUsers } from "../presence/colors";
 import { PresenceStack } from "../presence/PresenceStack";
 import { loadDesmos } from "./desmos";
+import { ExportDesmosDialog } from "./ExportDesmosDialog";
 import { GraphSession } from "./GraphSession";
 import { LiveCursors } from "./LiveCursors";
 import { SaveStatusBadge, type SessionStatus } from "./SaveStatusBadge";
@@ -39,6 +40,7 @@ export function CalculatorPage() {
       meId={me.data.id}
       role={role}
       initialTitle={graph.data?.title}
+      needsThumbnail={graph.data?.thumbnail_at === null}
       onRole={(next) => setLiveRole({ graphId, role: next })}
       onRevoked={() => setRevoked(graphId)}
     />
@@ -87,11 +89,12 @@ type CalculatorProps = {
   meId: string;
   role: Role;
   initialTitle: string | undefined;
+  needsThumbnail: boolean;
   onRole: (role: Role) => void;
   onRevoked: () => void;
 };
 
-function Calculator({ graphId, meId, role, initialTitle, onRole, onRevoked }: CalculatorProps) {
+function Calculator({ graphId, meId, role, initialTitle, needsThumbnail, onRole, onRevoked }: CalculatorProps) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const toast = useToast();
@@ -101,11 +104,12 @@ function Calculator({ graphId, meId, role, initialTitle, onRole, onRevoked }: Ca
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [missing, setMissing] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [title, setTitle] = useState(initialTitle === undefined ? null : initialTitle || "Untitled Graph");
   const online = usePresence(session, meId);
   const { tipProps, tip } = useHoverTip();
-  const latest = useRef({ onRole, onRevoked, toast });
-  latest.current = { onRole, onRevoked, toast };
+  const latest = useRef({ onRole, onRevoked, toast, needsThumbnail });
+  latest.current = { onRole, onRevoked, toast, needsThumbnail };
 
   useBodyClass("calculator-page");
   useBodyClass(role === "viewer" ? "calculator-readonly" : "calculator-editable");
@@ -133,11 +137,14 @@ function Calculator({ graphId, meId, role, initialTitle, onRole, onRevoked }: Ca
         desmos,
         container,
         titleInput,
+        needsThumbnail: latest.current.needsThumbnail,
         hooks: {
           onStatus: setStatus,
           onTitle: setTitle,
           onRole: (next) => {
-            latest.current.toast(next === "viewer" ? "You can now only view this graph" : "You can now edit this graph");
+            latest.current.toast(
+              next === "viewer" ? "You can now only view this graph" : "You can now edit this graph",
+            );
             latest.current.onRole(next);
           },
           onRevoked: () => latest.current.onRevoked(),
@@ -199,7 +206,13 @@ function Calculator({ graphId, meId, role, initialTitle, onRole, onRevoked }: Ca
         status={
           <>
             <div className="share-slot">
-              <button className="tb-icon tb-share" type="button" aria-label="Share" onClick={openShare} {...tipProps("Share")}>
+              <button
+                className="tb-icon tb-share"
+                type="button"
+                aria-label="Share"
+                onClick={openShare}
+                {...tipProps("Share")}
+              >
                 <UserPlus />
               </button>
               <PresenceStack users={online} size="header" onOpen={openShare} label="People here now. Open sharing" />
@@ -223,7 +236,19 @@ function Calculator({ graphId, meId, role, initialTitle, onRole, onRevoked }: Ca
           title={title ?? "Untitled Graph"}
           meId={meId}
           online={online}
+          onExport={() => {
+            setSharing(false);
+            setExporting(true);
+          }}
           onDismiss={() => setSharing(false)}
+        />
+      )}
+      {exporting && session && (
+        <ExportDesmosDialog
+          graphId={graphId}
+          title={title ?? "Untitled Graph"}
+          calc={session.calc}
+          onDismiss={() => setExporting(false)}
         />
       )}
     </>

@@ -47,3 +47,11 @@ export async function apiBytes(path: string): Promise<Uint8Array> {
 export function isNotFound(error: unknown) {
   return error instanceof ApiError && error.status === 404;
 }
+
+export function errorMessage(error: unknown, fallback = "Something went wrong. Try again.") {
+  if (error instanceof ApiError && error.data && typeof error.data === "object" && "error" in error.data) {
+    const message = String(error.data.error);
+    if (message.includes(" ")) return message;
+  }
+  return fallback;
+}

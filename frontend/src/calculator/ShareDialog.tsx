@@ -1,17 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Link2, LogOut, X } from "lucide-react";
+import { CircleAlert, Link2, LogOut, Upload, X } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { ApiError } from "../api/client";
+import { errorMessage } from "../api/client";
 import { keys, updateGraphs } from "../api/queries";
-import {
-  addMember,
-  changeMemberRole,
-  getSharing,
-  removeMember,
-  searchUsers,
-  setLinkAccess,
-} from "../api/sharing";
+import { addMember, changeMemberRole, getSharing, removeMember, searchUsers, setLinkAccess } from "../api/sharing";
 import type { LinkAccess, MemberRole, PublicUser, Sharing } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { Modal } from "../components/overlay/Modal";
@@ -22,14 +15,6 @@ const ROLE_LABELS: Record<MemberRole, string> = { editor: "Editor", viewer: "Vie
 const SEARCH_DELAY_MS = 150;
 
 const sharingKey = (graphId: string) => ["sharing", graphId] as const;
-
-function errorMessage(error: unknown) {
-  if (error instanceof ApiError && error.data && typeof error.data === "object" && "error" in error.data) {
-    const message = String(error.data.error);
-    if (message.includes(" ")) return message;
-  }
-  return "Something went wrong. Try again.";
-}
 
 function Person({ user, online, children }: { user: PublicUser; online: boolean; children?: ReactNode }) {
   return (
@@ -198,10 +183,11 @@ type ShareDialogProps = {
   title: string;
   meId: string;
   online: PublicUser[];
+  onExport: () => void;
   onDismiss: () => void;
 };
 
-export function ShareDialog({ graphId, title, meId, online, onDismiss }: ShareDialogProps) {
+export function ShareDialog({ graphId, title, meId, online, onExport, onDismiss }: ShareDialogProps) {
   const client = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
@@ -385,6 +371,10 @@ export function ShareDialog({ graphId, title, meId, online, onDismiss }: ShareDi
           <button className="btn-secondary" type="button" onClick={() => void copyLink()}>
             <Link2 />
             Copy link
+          </button>
+          <button className="btn-secondary" type="button" onClick={onExport}>
+            <Upload />
+            Export to Desmos
           </button>
         </div>
       </div>

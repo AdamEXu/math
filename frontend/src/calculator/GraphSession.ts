@@ -64,6 +64,7 @@ type OpenOptions = {
   desmos: DesmosApi;
   container: HTMLElement;
   titleInput: HTMLInputElement;
+  needsThumbnail?: boolean;
   hooks: SessionHooks;
 };
 
@@ -142,7 +143,17 @@ export class GraphSession {
   private tickerSeen = new Map<string, Json | undefined>();
   private tickerTimer: number | null = null;
 
-  static async open({ graphId, userId, role, doc: update, desmos, container, titleInput, hooks }: OpenOptions) {
+  static async open({
+    graphId,
+    userId,
+    role,
+    doc: update,
+    desmos,
+    container,
+    titleInput,
+    needsThumbnail,
+    hooks,
+  }: OpenOptions) {
     const doc = new Y.Doc();
     Y.applyUpdate(doc, update, LOAD);
     const persistence = role === "viewer" ? null : new IndexeddbPersistence(`math-graph:${graphId}:${userId}`, doc);
@@ -171,6 +182,7 @@ export class GraphSession {
     const session = new GraphSession(graphId, role, doc, calc, container, persistence, titleInput, hooks);
     session.updateDocumentTitle();
     if (!state && !readonly) writeState(doc, calc.getState());
+    else if (needsThumbnail && !readonly) session.scheduleThumbnail();
     window.graphSession = session;
     return session;
   }

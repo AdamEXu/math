@@ -1,8 +1,8 @@
-import { ChartSpline } from "lucide-react";
+import { ChartSpline, Import } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useDropdown } from "../components/menus";
 
-export function NewGraphButton({ onCreate }: { onCreate: () => Promise<void> }) {
+export function NewGraphButton({ onCreate, onImport }: { onCreate: () => Promise<void>; onImport: () => void }) {
   const { open, toggleProps } = useDropdown();
   const [pending, setPending] = useState(false);
 
@@ -35,6 +35,10 @@ export function NewGraphButton({ onCreate }: { onCreate: () => Promise<void> }) 
             Blank Graph
           </button>
         </form>
+        <button className="menu-item" type="button" role="menuitem" onClick={onImport}>
+          <Import />
+          Import from Desmos
+        </button>
       </div>
     </div>
   );

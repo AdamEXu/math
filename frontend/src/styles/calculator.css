@@ -93,7 +93,7 @@ body.calculator-page { display: flex; flex-direction: column; overflow: hidden; 
 .share-link-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-left: -10px; }
 .share-link-text { font-size: 15px; color: var(--ink); }
 .share-panel .hint { margin-left: 48px; }
-.share-footer { display: flex; justify-content: flex-start; margin-top: 24px; padding-top: 18px; border-top: 1px solid #eee; }
+.share-footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-start; margin-top: 24px; padding-top: 18px; border-top: 1px solid #eee; }
 
 @media (max-width: 600px) {
   .view-only { font-size: 0; gap: 0; padding: 0 8px; }
