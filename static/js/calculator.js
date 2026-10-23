@@ -6,6 +6,7 @@ const VIEWPORT_MS = 500;
 const THUMBNAIL_IDLE_MS = 3000;
 const THUMBNAIL = { width: 320, height: 240, targetPixelRatio: 2 };
 const FETCH_HEADERS = { "X-Requested-With": "fetch" };
+const DEFAULT_TITLE = /^Untitled Graph( \(\d+\))?$/;
 
 const graphId = document.body.dataset.graphId;
 const titleInput = document.getElementById("title");
@@ -200,6 +201,21 @@ async function main() {
   window.graphSession = session;
 
   titleInput.addEventListener("input", () => {
+    updateDocumentTitle();
+    session.scheduleCapture();
+  });
+  let titleOnFocus = "";
+  const keepSelection = (event) => event.preventDefault();
+  titleInput.addEventListener("focus", () => {
+    titleOnFocus = titleInput.value;
+    if (!DEFAULT_TITLE.test(titleInput.value)) return;
+    titleInput.select();
+    titleInput.addEventListener("mouseup", keepSelection, { once: true });
+  });
+  titleInput.addEventListener("blur", () => {
+    titleInput.removeEventListener("mouseup", keepSelection);
+    if (titleInput.value.trim() || !titleOnFocus.trim()) return;
+    titleInput.value = titleOnFocus;
     updateDocumentTitle();
     session.scheduleCapture();
   });

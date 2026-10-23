@@ -22,8 +22,10 @@ def post_updates(client, graph_id, updates, headers=FETCH):
 
 
 class Writer:
-    def __init__(self):
+    def __init__(self, client=None, graph_id=None):
         self.doc = Doc()
+        if client is not None:
+            self.doc.apply_update(client.get(f"/graphs/{graph_id}/doc").data)
         self.meta = self.doc.get("meta", type=Map)
 
     def edit(self, fn):
@@ -85,7 +87,7 @@ def test_other_users_get_404(bob, graph_id, method, path):
 
 def test_library_lists_only_own_graphs_newest_first(app, alice, bob, graph_id):
     second = alice.post("/graphs", headers={"Origin": ORIGIN}).headers["Location"].rsplit("/", 1)[1]
-    writer = Writer()
+    writer = Writer(alice, graph_id)
     assert post_updates(alice, graph_id, [writer.edit(lambda m: m.__setitem__("title", Text("Parabola")))]).status_code == 200
     page = alice.get("/").get_data(as_text=True)
     assert page.index(graph_id) < page.index(second)
@@ -99,29 +101,29 @@ def test_malformed_ids_404(alice):
 
 
 def test_updates_round_trip_and_title_mirror(app, alice, graph_id):
-    writer = Writer()
+    writer = Writer(alice, graph_id)
     first = writer.edit(lambda m: m.__setitem__("title", Text("Hello")))
     second = writer.edit(lambda m: m["title"].insert(5, " world"))
     res = post_updates(alice, graph_id, [first, second])
-    assert res.get_json() == {"acked": [first[0], second[0]], "seq": 2}
+    assert res.get_json() == {"acked": [first[0], second[0]], "seq": 3}
     assert str(load_doc(alice, graph_id).get("meta", type=Map)["title"]) == "Hello world"
     assert rows(app, "SELECT title FROM graphs WHERE id = ?", graph_id) == [("Hello world",)]
 
 
 def test_duplicate_update_ids_are_acked_but_not_appended(app, alice, graph_id):
-    writer = Writer()
+    writer = Writer(alice, graph_id)
     first = writer.edit(lambda m: m.__setitem__("title", Text("a")))
     second = writer.edit(lambda m: m["title"].insert(1, "b"))
-    assert post_updates(alice, graph_id, [first]).get_json()["seq"] == 1
+    assert post_updates(alice, graph_id, [first]).get_json()["seq"] == 2
     res = post_updates(alice, graph_id, [first, second])
-    assert res.get_json() == {"acked": [first[0], second[0]], "seq": 2}
-    assert post_updates(alice, graph_id, [first, second]).get_json()["seq"] == 2
-    assert rows(app, "SELECT seq FROM updates WHERE graph_id = ? ORDER BY seq", graph_id) == [(1,), (2,)]
+    assert res.get_json() == {"acked": [first[0], second[0]], "seq": 3}
+    assert post_updates(alice, graph_id, [first, second]).get_json()["seq"] == 3
+    assert rows(app, "SELECT seq FROM updates WHERE graph_id = ? ORDER BY seq", graph_id) == [(1,), (2,), (3,)]
 
 
 def test_checkpoint_written_and_load_uses_it(app, alice, graph_id, monkeypatch):
     monkeypatch.setattr(graphs, "CHECKPOINT_EVERY", 5)
-    writer = Writer()
+    writer = Writer(alice, graph_id)
     batch = [writer.edit(lambda m: m.__setitem__("title", Text("")))]
     for i in range(11):
         batch.append(writer.edit(lambda m, i=i: m["title"].insert(len(str(m["title"])), str(i % 10))))
@@ -129,13 +131,13 @@ def test_checkpoint_written_and_load_uses_it(app, alice, graph_id, monkeypatch):
         assert post_updates(alice, graph_id, [update]).status_code == 200
     checkpoints = rows(app, "SELECT seq FROM checkpoints WHERE graph_id = ? ORDER BY seq", graph_id)
     assert checkpoints == [(5,), (10,)]
-    assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == [(12,)]
+    assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == [(13,)]
     assert str(load_doc(alice, graph_id).get("meta", type=Map)["title"]) == "01234567890"
 
 
 def test_out_of_order_update_survives_checkpoint(app, alice, graph_id, monkeypatch):
     monkeypatch.setattr(graphs, "CHECKPOINT_EVERY", 1)
-    writer = Writer()
+    writer = Writer(alice, graph_id)
     first = writer.edit(lambda m: m.__setitem__("title", Text("x")))
     second = writer.edit(lambda m: m["title"].insert(1, "y"))
     assert post_updates(alice, graph_id, [second]).status_code == 200
@@ -217,11 +219,11 @@ def test_dev_login_refuses_non_local_base_url(app, monkeypatch):
 
 
 def test_delete_hides_graph_but_keeps_log(app, alice, bob, graph_id):
-    writer = Writer()
+    writer = Writer(alice, graph_id)
     assert post_updates(alice, graph_id, [writer.edit(lambda m: m.__setitem__("title", Text("Gone")))]).status_code == 200
     assert bob.post(f"/graphs/{graph_id}/delete", headers={"Origin": ORIGIN}).status_code == 404
     assert alice.post(f"/graphs/{graph_id}/delete").status_code == 403
     assert alice.post(f"/graphs/{graph_id}/delete", headers={"Origin": ORIGIN}).status_code == 302
     assert graph_id not in alice.get("/").get_data(as_text=True)
     assert alice.get(f"/calculator/{graph_id}").status_code == 404
-    assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == [(1,)]
+    assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == [(2,)]

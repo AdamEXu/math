@@ -71,6 +71,8 @@ ADDED_COLUMNS = {
     "users": {"google_picture_url": "TEXT"},
 }
 
+INIT_HOOKS = []
+
 _initialized = set()
 
 
@@ -109,6 +111,8 @@ def get_db():
         if path not in _initialized:
             conn.executescript(SCHEMA)
             add_missing_columns(conn)
+            for hook in INIT_HOOKS:
+                hook(conn)
             _initialized.add(path)
         g.db = conn
     return g.db

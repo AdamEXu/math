@@ -7,10 +7,10 @@ import uuid
 from contextlib import contextmanager
 
 from flask import Blueprint, Response, abort, g, redirect, render_template, request, url_for
-from pycrdt import Doc, Map, merge_updates
+from pycrdt import Doc, Map, Text, merge_updates
 
 from auth import fetch_only, login_required, same_origin
-from db import get_db, now_ms, uuid7
+from db import INIT_HOOKS, get_db, now_ms, uuid7
 
 CHECKPOINT_EVERY = 200
 MAX_UPDATES_PER_REQUEST = 500
@@ -21,6 +21,8 @@ MAX_TITLE = 200
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"}
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+DEFAULT_TITLE = "Untitled Graph"
+DEFAULT_TITLE_RE = re.compile(r"Untitled Graph(?: \((\d+)\))?")
 EMPTY_UPDATE = Doc().get_update()
 
 graphs_bp = Blueprint("graphs", __name__)
@@ -69,6 +71,63 @@ def title_of(state):
     return "" if title is None else str(title).strip()[:MAX_TITLE]
 
 
+def default_title(db, owner_id):
+    used = set()
+    for row in db.execute(
+        "SELECT title FROM graphs WHERE owner_id = ? AND deleted_at IS NULL AND title LIKE ?",
+        (owner_id, DEFAULT_TITLE + "%"),
+    ):
+        match = DEFAULT_TITLE_RE.fullmatch(row["title"])
+        if match:
+            used.add(int(match[1] or 1))
+    n = 1
+    while n in used:
+        n += 1
+    return DEFAULT_TITLE if n == 1 else f"{DEFAULT_TITLE} ({n})"
+
+
+def title_update(state, title):
+    doc = Doc()
+    doc.apply_update(state)
+    before = doc.get_state()
+    meta = doc.get("meta", type=Map)
+    with doc.transaction():
+        current = meta.get("title")
+        if isinstance(current, Text):
+            del current[:]
+            current += title
+        else:
+            meta["title"] = Text(title)
+    return doc.get_update(before)
+
+
+def append_server_update(db, graph_id, author_id, data, now):
+    seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM updates WHERE graph_id = ?", (graph_id,)).fetchone()[0]
+    db.execute(
+        "INSERT INTO updates (graph_id, seq, ts, client_ts, author_id, client_update_id, data)"
+        " VALUES (?, ?, ?, NULL, ?, ?, ?)",
+        (graph_id, seq + 1, now, author_id, str(uuid.uuid4()), data),
+    )
+
+
+def backfill_untitled(db):
+    rows = db.execute(
+        "SELECT id, owner_id FROM graphs WHERE title = '' AND deleted_at IS NULL ORDER BY owner_id, created_at, id"
+    ).fetchall()
+    if not rows:
+        return
+    with write_transaction(db):
+        for row in rows:
+            title = default_title(db, row["owner_id"])
+            state, _ = load_state(db, row["id"])
+            now = now_ms()
+            append_server_update(db, row["id"], row["owner_id"], title_update(state, title), now)
+            db.execute("UPDATE graphs SET title = ? WHERE id = ?", (title, row["id"]))
+
+
+INIT_HOOKS.append(backfill_untitled)
+
+
 def parse_updates(payload):
     items = payload.get("updates") if isinstance(payload, dict) else None
     if not isinstance(items, list) or not 0 < len(items) <= MAX_UPDATES_PER_REQUEST:
@@ -109,10 +168,12 @@ def create():
     now = now_ms()
     db = get_db()
     with write_transaction(db):
+        title = default_title(db, g.user["id"])
         db.execute(
-            "INSERT INTO graphs (id, owner_id, title, created_at, updated_at) VALUES (?, ?, '', ?, ?)",
-            (graph_id, g.user["id"], now, now),
+            "INSERT INTO graphs (id, owner_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (graph_id, g.user["id"], title, now, now),
         )
+        append_server_update(db, graph_id, g.user["id"], title_update(EMPTY_UPDATE, title), now)
     return redirect(url_for("graphs.calculator", graph_id=graph_id))
 
 
