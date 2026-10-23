@@ -2,6 +2,7 @@ import { IndexeddbPersistence } from "y-indexeddb";
 import { uploadImage, uploadThumbnail } from "../api/graphs";
 import type { Role } from "../api/types";
 import { CALCULATOR_OPTIONS, type Calculator, type DesmosApi } from "./desmos";
+import { CursorBroadcaster } from "./CursorBroadcaster";
 import { applyToCalculator, localView } from "./remote";
 import { type ConnectionStatus, GraphSocket } from "./socket";
 import {
@@ -93,6 +94,7 @@ export class GraphSession {
   private applyingRemote = false;
   private disposed = false;
   private readonly detachUi: (() => void)[] = [];
+  private readonly cursors: CursorBroadcaster | null = null;
 
   static async open({ graphId, userId, role, doc: update, desmos, container, titleInput, hooks }: OpenOptions) {
     const doc = new Y.Doc();
@@ -120,7 +122,7 @@ export class GraphSession {
     titleInput.value = readTitle(doc);
     titleInput.readOnly = readonly;
 
-    const session = new GraphSession(graphId, role, doc, calc, persistence, titleInput, hooks);
+    const session = new GraphSession(graphId, role, doc, calc, container, persistence, titleInput, hooks);
     session.updateDocumentTitle();
     if (!state && !readonly) writeState(doc, calc.getState());
     window.graphSession = session;
@@ -131,7 +133,8 @@ export class GraphSession {
     private readonly graphId: string,
     readonly role: Role,
     private readonly doc: Y.Doc,
-    private readonly calc: Calculator,
+    readonly calc: Calculator,
+    readonly container: HTMLElement,
     private readonly persistence: IndexeddbPersistence | null,
     private readonly titleInput: HTMLInputElement,
     private readonly hooks: SessionHooks,
@@ -152,7 +155,10 @@ export class GraphSession {
     calc.observeEvent("change", (_name, event) => {
       if (event.isUserInitiated && !this.applyingRemote) this.scheduleCapture();
     });
-    if (this.canEdit) this.bindTitle();
+    if (this.canEdit) {
+      this.bindTitle();
+      this.cursors = new CursorBroadcaster(this.socket.awareness, calc, container, () => this.capture());
+    }
     this.bindExit();
   }
 
@@ -284,6 +290,7 @@ export class GraphSession {
     if (this.disposed) return;
     this.flushPendingCapture();
     this.disposed = true;
+    this.cursors?.dispose();
     for (const detach of this.detachUi) detach();
     if (window.graphSession === this) delete window.graphSession;
 

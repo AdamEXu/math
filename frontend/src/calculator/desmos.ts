@@ -23,6 +23,10 @@ export interface Calculator {
   setSelectedExpressionId(id: string): void;
   observeEvent(name: "change", callback: (name: string, event: ChangeEvent) => void): void;
   asyncScreenshot(options: ScreenshotOptions, callback: (dataUrl: string) => void): void;
+  observe(property: string, callback: () => void): void;
+  unobserve(property: string): void;
+  mathToPixels(coords: { x: number; y: number }): { x: number; y: number };
+  pixelsToMath(coords: { x: number; y: number }): { x: number; y: number };
   destroy(): void;
 }
 

@@ -16,6 +16,7 @@ import { type PresenceState, distinctUsers } from "../presence/colors";
 import { PresenceStack } from "../presence/PresenceStack";
 import { loadDesmos } from "./desmos";
 import { GraphSession } from "./GraphSession";
+import { LiveCursors } from "./LiveCursors";
 import { SaveStatusBadge, type SessionStatus } from "./SaveStatusBadge";
 import { ShareDialog } from "./ShareDialog";
 
@@ -215,6 +216,7 @@ function Calculator({ graphId, meId, role, initialTitle, onRole, onRevoked }: Ca
         }
       />
       <div id="calculator" ref={containerRef} />
+      {session && <LiveCursors session={session} meId={meId} />}
       {sharing && (
         <ShareDialog
           graphId={graphId}

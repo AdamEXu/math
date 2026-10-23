@@ -1,5 +1,5 @@
 body.calculator-page { display: flex; flex-direction: column; overflow: hidden; }
-#calculator { flex: 1; min-height: 0; }
+#calculator { flex: 1; min-height: 0; isolation: isolate; }
 
 .title-input {
   width: 120px; min-width: 40px; max-width: 34vw; height: 28px; margin: 0 -6px; padding: 0 5px; border: 1px solid transparent; border-radius: 3px;
@@ -98,3 +98,23 @@ body.calculator-page { display: flex; flex-direction: column; overflow: hidden; 
 @media (max-width: 600px) {
   .view-only { font-size: 0; gap: 0; padding: 0 8px; }
 }
+
+.live-cursors { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
+.live-cursor, .live-editing, .live-caret { position: fixed; top: 0; left: 0; }
+.live-cursor { will-change: transform; }
+.live-cursor svg {
+  display: block; width: 22px; height: 22px; fill: var(--presence); stroke: #fff; stroke-width: 1.5;
+  filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.3));
+}
+.live-tag {
+  position: absolute; max-width: 180px; padding: 2px 7px; border-radius: 9px; overflow: hidden; text-overflow: ellipsis;
+  background: var(--presence); color: #fff; font: 600 12px/16px system-ui, sans-serif; white-space: nowrap;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+.live-cursor .live-tag { left: 16px; top: 17px; }
+.live-editing { box-sizing: border-box; border: 2px solid var(--presence); }
+.live-editing .live-tag { left: 100%; top: -2px; margin-left: 4px; border-radius: 4px; }
+.live-editing.has-caret .live-tag { display: none; }
+.live-caret { width: 2px; margin-left: -1px; background: var(--presence); will-change: transform; }
+.live-caret .live-tag { left: 0; bottom: 100%; margin-bottom: 1px; padding: 0 5px; border-radius: 3px 3px 3px 0; font-size: 11px; line-height: 15px; }
+.live-selection { position: absolute; top: 0; height: 100%; background: var(--presence); opacity: 0.22; }
