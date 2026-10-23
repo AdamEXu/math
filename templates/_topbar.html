@@ -18,16 +18,16 @@
   <div class="topbar-right">
     <div class="dropdown user-menu">
       <button class="user-button" type="button" aria-haspopup="menu" aria-expanded="false">
-        <span class="user-name">{{ current_user.display_name }}</span><span class="caret"></span>{{ avatar(current_user, 28) }}
+        {{ avatar(current_user, 28) }}<span class="user-name">{{ current_user.display_name }}</span><span class="caret"></span>
       </button>
       <div class="menu menu-right" role="menu" hidden>
-        <div class="menu-user">
+        {% if current_user.handle %}<a class="menu-user" role="menuitem" href="/profile/{{ current_user.handle }}">{% else %}<div class="menu-user">{% endif %}
           {{ avatar(current_user, 36) }}
           <div class="menu-user-text">
             <div class="menu-name">{{ current_user.display_name }}</div>
             {% if current_user.handle %}<div class="menu-handle">@{{ current_user.handle }}</div>{% endif %}
           </div>
-        </div>
+        {% if current_user.handle %}</a>{% else %}</div>{% endif %}
         {% if current_user.handle %}
         <a class="menu-item" role="menuitem" href="{{ url_for('account.settings') }}"><i data-lucide="settings"></i>Account settings</a>
         {% endif %}
