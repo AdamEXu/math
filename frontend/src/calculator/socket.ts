@@ -110,7 +110,7 @@ export class GraphSocket {
     if (this.disposed) return;
     if (code === CLOSE_UNAUTHORIZED) return this.hooks.onSignedOut();
     if (code === CLOSE_FORBIDDEN || code === CLOSE_NOT_FOUND) return this.hooks.onRevoked();
-    this.setStatus("connecting");
+    if (this.status === "online") this.setStatus("connecting");
     this.offlineTimer ??= window.setTimeout(() => {
       this.offlineTimer = null;
       if (this.status !== "online") this.setStatus("offline");
