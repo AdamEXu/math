@@ -204,7 +204,7 @@ def test_logout_requires_same_origin(alice):
     assert alice.post("/auth/logout").status_code == 403
     assert alice.get("/api/me").status_code == 200
     res = alice.post("/auth/logout", headers={"Origin": ORIGIN})
-    assert res.status_code == 302 and res.headers["Location"].startswith("/login?next=/images/")
+    assert res.status_code == 302 and res.headers["Location"] == "/login"
     assert alice.get("/api/me").status_code == 401
     assert alice.get("/").headers["Location"] == "/login"
 
