@@ -18,6 +18,7 @@ export interface Calculator {
   setState(state: DesmosState, options?: { allowUndo?: boolean }): void;
   setExpression(expression: DesmosItem): void;
   removeExpressions(expressions: { id: string }[]): void;
+  updateSettings(settings: Record<string, unknown>): void;
   withHistoryReplacement(callback: () => void): void;
   readonly selectedExpressionId: string | undefined;
   setSelectedExpressionId(id: string): void;
