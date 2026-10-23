@@ -10,6 +10,9 @@ const HISTORY_MS = 100;
 const EXIT_MS = 160;
 const FADE_MS = 120;
 const MOVING_PX_PER_MS = 0.05;
+const HANDOFF_MS = 150;
+const TAG_FADE_MS = 120;
+const POINTER_TAG = { x: 16, y: 17 };
 
 export type RemoteCursor = {
   clientId: number;
@@ -17,11 +20,24 @@ export type RemoteCursor = {
   pressed: boolean;
   editing: string | null;
   caret: CaretPosition | null;
+  leaving?: boolean;
 };
 
 type Point = { x: number; y: number };
 type Sample = Point & { t: number };
 type Exit = Point & { vx: number; vy: number; start: number; duration: number };
+type Visual = Point & { opacity: number };
+type TagHost = "pointer" | "caret" | "outline";
+type Tag = {
+  el: HTMLElement | null;
+  prefer: "pointer" | "caret";
+  host: TagHost | null;
+  pos: Point | null;
+  from: Point | null;
+  since: number;
+  opacity: number;
+  style: string;
+};
 
 type Track = {
   anchor: CursorAnchor | null;
@@ -38,6 +54,8 @@ type Track = {
   cursorStyle: string;
   editStyle: string;
   caretStyle: string;
+  tag: Tag;
+  frozen: boolean;
 };
 
 export class CursorMotion {
@@ -73,6 +91,8 @@ export class CursorMotion {
         cursorStyle: "",
         editStyle: "",
         caretStyle: "",
+        tag: { el: null, prefer: "pointer", host: null, pos: null, from: null, since: 0, opacity: 0, style: "" },
+        frozen: false,
       };
       this.tracks.set(clientId, track);
     }
@@ -94,6 +114,13 @@ export class CursorMotion {
     for (const remote of remotes) {
       live.add(remote.clientId);
       const track = this.track(remote.clientId);
+      track.frozen = !!remote.leaving;
+      if (track.frozen) continue;
+      const caretMoved = !!remote.caret && JSON.stringify(remote.caret) !== JSON.stringify(track.caret);
+      const startedEditing = !!remote.editing && remote.editing !== track.editing;
+      const pointerMoved = !!remote.cursor && !sameAnchor(track.anchor, remote.cursor);
+      if (caretMoved || startedEditing) track.tag.prefer = "caret";
+      else if (pointerMoved) track.tag.prefer = "pointer";
       if (!sameAnchor(track.anchor, remote.cursor)) {
         const target = this.locate(remote.cursor);
         const glide = track.shown && target && !remote.pressed;
@@ -139,6 +166,12 @@ export class CursorMotion {
     track.editStyle = "";
   }
 
+  bindTag(clientId: number, el: HTMLElement | null) {
+    const tag = this.track(clientId).tag;
+    tag.el = el;
+    tag.style = "";
+  }
+
   bindCaret(clientId: number, el: HTMLElement | null) {
     const track = this.track(clientId);
     track.caretEl = el;
@@ -163,8 +196,9 @@ export class CursorMotion {
     const decay = Math.exp(-dt / SMOOTHING_MS);
     this.clipLayer();
     for (const track of this.tracks.values()) {
+      if (track.frozen) continue;
       const now = performance.now();
-      const target = track.caret ? null : this.locate(track.anchor);
+      const target = this.locate(track.anchor);
       if (target) {
         const r = track.residual;
         r.x = Math.abs(r.x * decay) < SETTLED_PX ? 0 : r.x * decay;
@@ -174,13 +208,12 @@ export class CursorMotion {
         track.history.push({ ...track.shown, t: now });
         while (track.history.length > 2 && now - (track.history[0] as Sample).t > HISTORY_MS) track.history.shift();
       } else {
-        if (track.shown && !track.caret) track.exit = this.exitFrom(track.shown, track.history, now);
-        if (track.caret) track.exit = null;
+        if (track.shown) track.exit = this.exitFrom(track.shown, track.history, now);
         track.shown = null;
         track.history = [];
         track.residual = { x: 0, y: 0 };
       }
-      this.renderCursor(track, now);
+      const pointer = this.renderCursor(track, now);
 
       let box = null;
       try {
@@ -190,12 +223,12 @@ export class CursorMotion {
       }
       const caret = box && track.caret?.id === track.editing ? this.caretIn(track.caret, box) : null;
       this.renderCaret(track, caret);
+      this.renderTag(track, now, dt, pointer, caret, box);
       const editStyle = box
         ? `${box.left},${box.top},${box.right - box.left},${box.bottom - box.top},${caret ? 1 : 0}`
         : "none";
       if (track.editEl && editStyle !== track.editStyle) {
         track.editStyle = editStyle;
-        track.editEl.classList.toggle("has-caret", !!caret);
         const style = track.editEl.style;
         style.display = box ? "" : "none";
         if (box) {
@@ -225,7 +258,61 @@ export class CursorMotion {
       : { ...from, vx: 0, vy: 0, start: now, duration: FADE_MS };
   }
 
-  private renderCursor(track: Track, now: number) {
+  private renderTag(
+    track: Track,
+    now: number,
+    dt: number,
+    pointer: Visual | null,
+    caret: { x: number; top: number } | null,
+    box: { right: number; top: number } | null,
+  ) {
+    const tag = track.tag;
+    const el = tag.el;
+    if (!el) return;
+    const height = el.offsetHeight;
+    const hosts: Record<TagHost, Visual | null> = {
+      pointer: pointer && {
+        x: pointer.x - TIP_PX + POINTER_TAG.x,
+        y: pointer.y - TIP_PX + POINTER_TAG.y,
+        opacity: pointer.opacity,
+      },
+      caret: caret && { x: caret.x - 1, y: caret.top - height - 1, opacity: 1 },
+      outline: !caret && box ? { x: box.right + 4, y: box.top - 2, opacity: 1 } : null,
+    };
+    const order: TagHost[] = tag.prefer === "caret" ? ["caret", "outline", "pointer"] : ["pointer", "caret", "outline"];
+    const host = order.find((kind) => hosts[kind]) ?? null;
+    const spot = host ? (hosts[host] as Visual) : null;
+    if (host && host !== tag.host) {
+      tag.from = tag.pos && tag.opacity > 0 ? tag.pos : null;
+      tag.since = now;
+      tag.host = host;
+    }
+    if (spot) {
+      const t = tag.from ? Math.min(1, (now - tag.since) / HANDOFF_MS) : 1;
+      const ease = 1 - (1 - t) ** 3;
+      tag.pos = tag.from
+        ? { x: tag.from.x + (spot.x - tag.from.x) * ease, y: tag.from.y + (spot.y - tag.from.y) * ease }
+        : { x: spot.x, y: spot.y };
+      if (t >= 1) tag.from = null;
+      tag.opacity = host === "pointer" ? spot.opacity : Math.min(1, tag.opacity + dt / TAG_FADE_MS);
+    } else {
+      tag.host = null;
+      tag.opacity = Math.max(0, tag.opacity - (dt || TAG_FADE_MS) / TAG_FADE_MS);
+    }
+    const visible = !!tag.pos && tag.opacity > 0;
+    const style = visible
+      ? `${tag.pos!.x.toFixed(1)},${tag.pos!.y.toFixed(1)},${tag.opacity.toFixed(2)},${tag.host === "pointer" ? 1 : 0}`
+      : "none";
+    if (style === tag.style) return;
+    tag.style = style;
+    el.style.display = visible ? "" : "none";
+    if (!visible) return;
+    el.style.transform = `translate3d(${tag.pos!.x.toFixed(1)}px, ${tag.pos!.y.toFixed(1)}px, 0)`;
+    el.style.opacity = tag.opacity < 1 ? tag.opacity.toFixed(2) : "";
+    el.classList.toggle("at-caret", tag.host !== null && tag.host !== "pointer");
+  }
+
+  private renderCursor(track: Track, now: number): Visual | null {
     let point = track.shown;
     let opacity = 1;
     const exit = track.exit;
@@ -242,13 +329,15 @@ export class CursorMotion {
     const cursorStyle = point
       ? `translate3d(${(point.x - TIP_PX).toFixed(1)}px, ${(point.y - TIP_PX).toFixed(1)}px, 0)|${opacity.toFixed(2)}`
       : "none";
-    if (!track.cursorEl || cursorStyle === track.cursorStyle) return;
+    const visual = point && { ...point, opacity };
+    if (!track.cursorEl || cursorStyle === track.cursorStyle) return visual;
     track.cursorStyle = cursorStyle;
     const style = track.cursorEl.style;
     style.display = point ? "" : "none";
-    if (!point) return;
+    if (!point) return visual;
     style.transform = cursorStyle.slice(0, cursorStyle.indexOf("|"));
     style.opacity = opacity < 1 ? opacity.toFixed(2) : "";
+    return visual;
   }
 
   private caretIn(caret: CaretPosition, box: { left: number; top: number; right: number; bottom: number }) {

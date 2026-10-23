@@ -1,5 +1,5 @@
 import { MousePointer2 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { type PresenceState, type PresenceUser, presenceColor } from "../presence/colors";
 import { isAnchor } from "./cursorAnchors";
@@ -10,6 +10,7 @@ import { isCaret } from "./remoteCaret";
 type Remote = RemoteCursor & { user: PresenceUser };
 
 const NO_ONE: Remote[] = [];
+const LEAVE_MS = 120;
 
 function readRemotes(session: GraphSession, meId: string): Remote[] {
   const awareness = session.socket.awareness;
@@ -42,8 +43,31 @@ function useRemotes(session: GraphSession, meId: string) {
   );
 }
 
+function useLeavers(remotes: Remote[]) {
+  const previous = useRef<Remote[]>(NO_ONE);
+  const [leaving, setLeaving] = useState<Remote[]>(NO_ONE);
+  useLayoutEffect(() => {
+    const live = new Set(remotes.map((remote) => remote.clientId));
+    const gone = previous.current.filter((remote) => !live.has(remote.clientId));
+    previous.current = remotes;
+    const returned = leaving.some((remote) => live.has(remote.clientId));
+    if (!gone.length && !returned) return;
+    const goneIds = new Set(gone.map((remote) => remote.clientId));
+    setLeaving((current) => [
+      ...current.filter((remote) => !live.has(remote.clientId) && !goneIds.has(remote.clientId)),
+      ...gone.map((remote) => ({ ...remote, leaving: true })),
+    ]);
+    if (gone.length)
+      window.setTimeout(
+        () => setLeaving((current) => current.filter((remote) => !goneIds.has(remote.clientId))),
+        LEAVE_MS,
+      );
+  }, [remotes, leaving]);
+  return useMemo(() => (leaving.length ? [...remotes, ...leaving] : remotes), [remotes, leaving]);
+}
+
 export function LiveCursors({ session, meId }: { session: GraphSession; meId: string }) {
-  const remotes = useRemotes(session, meId);
+  const remotes = useLeavers(useRemotes(session, meId));
   const [motion, setMotion] = useState<CursorMotion | null>(null);
   useEffect(() => {
     const created = new CursorMotion(session.container, session.calc);
@@ -60,22 +84,25 @@ export function LiveCursors({ session, meId }: { session: GraphSession; meId: st
         const color = presenceColor(remote.user.id);
         const name = remote.user.display_name;
         return (
-          <div key={remote.clientId} style={{ "--presence": color }}>
+          <div
+            key={remote.clientId}
+            className={remote.leaving ? "live-leaving" : undefined}
+            style={{ "--presence": color }}
+          >
             <div className="live-cursor" ref={(el) => motion.bindCursor(remote.clientId, el)}>
               <MousePointer2 />
-              <span className="live-tag">{name}</span>
             </div>
             {remote.editing && (
               <>
-                <div className="live-editing" ref={(el) => motion.bindEditing(remote.clientId, el)}>
-                  <span className="live-tag">{name}</span>
-                </div>
+                <div className="live-editing" ref={(el) => motion.bindEditing(remote.clientId, el)} />
                 <div className="live-caret" ref={(el) => motion.bindCaret(remote.clientId, el)}>
                   <span className="live-selection" />
-                  <span className="live-tag">{name}</span>
                 </div>
               </>
             )}
+            <span className="live-tag" ref={(el) => motion.bindTag(remote.clientId, el)}>
+              {name}
+            </span>
           </div>
         );
       })}
