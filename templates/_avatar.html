@@ -1,0 +1,6 @@
+{% macro avatar(user, size) %}
+<span class="avatar" style="--avatar-size: {{ size }}px; --avatar-hue: {{ avatar_hue(user) }}" aria-hidden="true">
+  {{- avatar_initial(user) -}}
+  {%- if avatar_url(user) %}<img src="{{ avatar_url(user) }}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">{% endif -%}
+</span>
+{% endmacro %}

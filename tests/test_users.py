@@ -180,3 +180,43 @@ def test_display_name_defaults_from_google_and_is_not_clobbered(app):
 def test_long_google_name_is_truncated_for_display(app):
     with app.app_context():
         assert len(upsert_google_user("sub-long", "long@pinewood.edu", "z" * 80)["display_name"]) == 50
+
+
+def test_google_picture_url_refreshed_on_every_login(app, monkeypatch):
+    pictures = iter(["https://lh3.googleusercontent.com/a/one=s96-c", "https://lh3.googleusercontent.com/a/two=s96-c"])
+
+    class Reply:
+        def __init__(self, data):
+            self.data = data
+
+        def json(self):
+            return self.data
+
+    def fake_get(url, **kwargs):
+        return Reply({"id": "sub-pic", "email": "pia@pinewood.edu", "name": "Pia", "hd": "pinewood.edu",
+                      "verified_email": True, "picture": next(pictures)})
+
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "secret")
+    monkeypatch.setattr("auth.requests.post", lambda *a, **k: Reply({"access_token": "token"}))
+    monkeypatch.setattr("auth.requests.get", fake_get)
+    for expected in ("one", "two"):
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["google_oauth_state"] = "state"
+        assert client.get("/auth/google/callback?state=state&code=c").status_code == 302
+        with app.app_context():
+            assert find_user("pia@pinewood.edu")["google_picture_url"].endswith(f"/a/{expected}=s96-c")
+
+
+def test_header_avatar_uses_picture_or_initial(app, alice):
+    page = alice.get("/").get_data(as_text=True)
+    assert 'aria-hidden="true">A</span>' in page and "referrerpolicy" not in page
+    with app.app_context():
+        from users import set_google_picture
+        set_google_picture(alice.user_id, "https://lh3.googleusercontent.com/a/x=s96-c")
+        set_google_picture(alice.user_id, "javascript:alert(1)")
+        assert find_user("alice")["google_picture_url"] is None
+        set_google_picture(alice.user_id, "https://lh3.googleusercontent.com/a/x=s96-c")
+    page = alice.get("/").get_data(as_text=True)
+    assert 'src="https://lh3.googleusercontent.com/a/x=s96-c" alt="" referrerpolicy="no-referrer"' in page

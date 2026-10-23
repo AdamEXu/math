@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS image_owners (
 );
 """
 
+ADDED_COLUMNS = {
+    "users": {"google_picture_url": "TEXT"},
+}
+
 _initialized = set()
 
 
@@ -79,6 +83,14 @@ def uuid7():
     value = value & ~(0xF << 76) | 0x7 << 76
     value = value & ~(0x3 << 62) | 0x2 << 62
     return str(uuid.UUID(int=value))
+
+
+def add_missing_columns(conn):
+    for table, columns in ADDED_COLUMNS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, declaration in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
 
 
 def db_path():
@@ -96,6 +108,7 @@ def get_db():
         conn.execute("PRAGMA foreign_keys=ON")
         if path not in _initialized:
             conn.executescript(SCHEMA)
+            add_missing_columns(conn)
             _initialized.add(path)
         g.db = conn
     return g.db

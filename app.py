@@ -8,6 +8,7 @@ from account import account_bp
 from auth import auth_bp, dev_login_email
 from db import close_db
 from graphs import MAX_IMAGE_BYTES, graphs_bp
+from users import avatar_hue, avatar_initial, avatar_url
 
 app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
@@ -32,7 +33,12 @@ LOGIN_ERRORS = {
 
 @app.context_processor
 def current_user():
-    return {"current_user": g.get("user")}
+    return {
+        "current_user": g.get("user"),
+        "avatar_url": avatar_url,
+        "avatar_initial": avatar_initial,
+        "avatar_hue": avatar_hue,
+    }
 
 
 @app.get("/login")

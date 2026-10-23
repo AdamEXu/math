@@ -1,6 +1,8 @@
+import hashlib
 import re
 import sqlite3
 import unicodedata
+from urllib.parse import urlsplit
 
 from db import get_db, now_ms, uuid7
 
@@ -126,3 +128,20 @@ def dev_user(email):
         return user
     name = " ".join(part.capitalize() for part in re.split(r"[._]", email.split("@")[0]) if part)
     return _insert_user(DEV_SUB_PREFIX + email, email, name)
+
+
+def set_google_picture(user_id, url):
+    url = url if url and urlsplit(url).scheme == "https" else None
+    get_db().execute("UPDATE users SET google_picture_url = ? WHERE id = ?", (url, user_id))
+
+
+def avatar_url(user):
+    return user["google_picture_url"]
+
+
+def avatar_initial(user):
+    return (user["display_name"].strip()[:1] or "?").upper()
+
+
+def avatar_hue(user):
+    return int(hashlib.sha256(user["id"].encode()).hexdigest(), 16) % 360

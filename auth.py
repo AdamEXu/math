@@ -7,7 +7,7 @@ from urllib.parse import urlencode, urlsplit
 import requests
 from flask import Blueprint, abort, current_app, g, redirect, request, session, url_for
 
-from users import EmailInUse, dev_user, get_user, upsert_google_user
+from users import EmailInUse, dev_user, get_user, set_google_picture, upsert_google_user
 
 ALLOWED_DOMAIN = "pinewood.edu"
 GOOGLE_TIMEOUT = (3.05, 15)
@@ -139,9 +139,11 @@ def google_callback():
         return _fail("invalid_domain")
 
     try:
-        sign_in(upsert_google_user(user["id"], user["email"], user.get("name") or user["email"]))
+        account = upsert_google_user(user["id"], user["email"], user.get("name") or user["email"])
     except EmailInUse:
         return _fail("email_in_use")
+    set_google_picture(account["id"], user.get("picture"))
+    sign_in(account)
     return redirect(url_for("graphs.library"))
 
 
