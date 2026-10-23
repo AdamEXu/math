@@ -2,8 +2,9 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, g, redirect, render_template, request, session, url_for
 
+from account import account_bp
 from auth import auth_bp, dev_login_email
 from db import close_db
 from graphs import MAX_IMAGE_BYTES, graphs_bp
@@ -20,16 +21,23 @@ app.config.update(
 )
 app.register_blueprint(auth_bp)
 app.register_blueprint(graphs_bp)
+app.register_blueprint(account_bp)
 app.teardown_appcontext(close_db)
 
 LOGIN_ERRORS = {
     "invalid_domain": "Sign in with your pinewood.edu account.",
+    "email_in_use": "That email is linked to a different account. Ask an admin for help.",
 }
+
+
+@app.context_processor
+def current_user():
+    return {"current_user": g.get("user")}
 
 
 @app.get("/login")
 def login():
-    if "email" in session:
+    if "user_id" in session:
         return redirect(url_for("graphs.library"))
     error = request.args.get("error")
     message = LOGIN_ERRORS.get(error, "Sign-in failed, try again.") if error else None

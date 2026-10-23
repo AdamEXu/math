@@ -5,7 +5,9 @@ from functools import wraps
 from urllib.parse import urlencode, urlsplit
 
 import requests
-from flask import Blueprint, abort, current_app, redirect, request, session, url_for
+from flask import Blueprint, abort, current_app, g, redirect, request, session, url_for
+
+from users import EmailInUse, dev_user, get_user, upsert_google_user
 
 ALLOWED_DOMAIN = "pinewood.edu"
 GOOGLE_TIMEOUT = (3.05, 15)
@@ -22,16 +24,36 @@ def _base_origin():
     return f"{base.scheme}://{base.netloc}"
 
 
-def login_required(view):
+def safe_next(target):
+    return target if target and target.startswith("/") and not target.startswith("//") else None
+
+
+def login_required(view=None, *, handle=True):
+    if view is None:
+        return lambda v: login_required(v, handle=handle)
+
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if "email" not in session:
-            if request.headers.get("X-Requested-With"):
-                return {"error": "signed_out"}, 401
-            return redirect(url_for("login"))
+        api = bool(request.headers.get("X-Requested-With"))
+        user = get_user(session["user_id"]) if "user_id" in session else None
+        if user is None:
+            session.clear()
+            return ({"error": "signed_out"}, 401) if api else redirect(url_for("login"))
+        g.user = user
+        if handle and not user["handle"]:
+            if api:
+                return {"error": "handle_required"}, 403
+            target = request.full_path.rstrip("?") if request.method == "GET" else None
+            return redirect(url_for("account.welcome", next=target))
         return view(*args, **kwargs)
 
     return wrapped
+
+
+def sign_in(user):
+    session.clear()
+    session.permanent = True
+    session["user_id"] = user["id"]
 
 
 def same_origin(view):
@@ -116,10 +138,10 @@ def google_callback():
     if user.get("hd") != ALLOWED_DOMAIN or not user.get("verified_email"):
         return _fail("invalid_domain")
 
-    session.clear()
-    session.permanent = True
-    session["email"] = user["email"]
-    session["name"] = user.get("name", user["email"])
+    try:
+        sign_in(upsert_google_user(user["id"], user["email"], user.get("name") or user["email"]))
+    except EmailInUse:
+        return _fail("email_in_use")
     return redirect(url_for("graphs.library"))
 
 
@@ -129,10 +151,7 @@ def dev_login():
     email = dev_login_email()
     if not email:
         abort(404)
-    session.clear()
-    session.permanent = True
-    session["email"] = email
-    session["name"] = email.split("@")[0].split(".")[0].capitalize()
+    sign_in(dev_user(email))
     return redirect(url_for("graphs.library"))
 
 

@@ -7,7 +7,7 @@
   <script type="module" src="{{ url_for('static', filename='js/library.js') }}"></script>
 </head>
 <body>
-  {% from "_topbar.html" import topbar %}
+  {% from "_topbar.html" import topbar with context %}
   {% call topbar() %}<span class="tb-title">My Graphs</span>{% endcall %}
 
   <main class="library">

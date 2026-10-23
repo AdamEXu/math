@@ -7,23 +7,33 @@ from pathlib import Path
 from flask import current_app, g
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    google_sub TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    handle TEXT UNIQUE COLLATE NOCASE,
+    display_name TEXT NOT NULL,
+    google_name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS graphs (
     id TEXT PRIMARY KEY,
-    owner_email TEXT NOT NULL,
+    owner_id TEXT NOT NULL REFERENCES users (id),
     title TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     thumbnail_at INTEGER,
     deleted_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS graphs_owner_updated ON graphs (owner_email, updated_at DESC);
+CREATE INDEX IF NOT EXISTS graphs_owner_updated ON graphs (owner_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS updates (
     graph_id TEXT NOT NULL REFERENCES graphs (id),
     seq INTEGER NOT NULL,
     ts INTEGER NOT NULL,
     client_ts INTEGER,
-    author_email TEXT NOT NULL,
+    author_id TEXT NOT NULL REFERENCES users (id),
     client_update_id TEXT NOT NULL,
     data BLOB NOT NULL,
     PRIMARY KEY (graph_id, seq),
@@ -52,8 +62,8 @@ CREATE TABLE IF NOT EXISTS images (
 
 CREATE TABLE IF NOT EXISTS image_owners (
     sha256 TEXT NOT NULL REFERENCES images (sha256),
-    owner_email TEXT NOT NULL,
-    PRIMARY KEY (sha256, owner_email)
+    owner_id TEXT NOT NULL REFERENCES users (id),
+    PRIMARY KEY (sha256, owner_id)
 );
 """
 

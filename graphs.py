@@ -6,7 +6,7 @@ import re
 import uuid
 from contextlib import contextmanager
 
-from flask import Blueprint, Response, abort, redirect, render_template, request, session, url_for
+from flask import Blueprint, Response, abort, g, redirect, render_template, request, url_for
 from pycrdt import Doc, Map, merge_updates
 
 from auth import fetch_only, login_required, same_origin
@@ -43,7 +43,7 @@ def owned_graph(graph_id):
     except ValueError:
         abort(404)
     row = get_db().execute(
-        "SELECT * FROM graphs WHERE id = ? AND owner_email = ? AND deleted_at IS NULL", (graph_id, session["email"])
+        "SELECT * FROM graphs WHERE id = ? AND owner_id = ? AND deleted_at IS NULL", (graph_id, g.user["id"])
     ).fetchone()
     if row is None:
         abort(404)
@@ -95,8 +95,8 @@ def parse_updates(payload):
 def library():
     rows = get_db().execute(
         "SELECT id, title, updated_at, thumbnail_at FROM graphs"
-        " WHERE owner_email = ? AND deleted_at IS NULL ORDER BY updated_at DESC",
-        (session["email"],),
+        " WHERE owner_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC",
+        (g.user["id"],),
     ).fetchall()
     return render_template("library.html", graphs=rows)
 
@@ -110,8 +110,8 @@ def create():
     db = get_db()
     with write_transaction(db):
         db.execute(
-            "INSERT INTO graphs (id, owner_email, title, created_at, updated_at) VALUES (?, ?, '', ?, ?)",
-            (graph_id, session["email"], now, now),
+            "INSERT INTO graphs (id, owner_id, title, created_at, updated_at) VALUES (?, ?, '', ?, ?)",
+            (graph_id, g.user["id"], now, now),
         )
     return redirect(url_for("graphs.calculator", graph_id=graph_id))
 
@@ -155,9 +155,9 @@ def append_updates(graph_id):
         added = 0
         for update_id, client_ts, data in parsed:
             inserted = db.execute(
-                "INSERT OR IGNORE INTO updates (graph_id, seq, ts, client_ts, author_email, client_update_id, data)"
+                "INSERT OR IGNORE INTO updates (graph_id, seq, ts, client_ts, author_id, client_update_id, data)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (graph_id, seq + 1, now, client_ts, session["email"], update_id, data),
+                (graph_id, seq + 1, now, client_ts, g.user["id"], update_id, data),
             ).rowcount
             seq += inserted
             added += inserted
@@ -214,7 +214,7 @@ def upload_image():
             "INSERT OR IGNORE INTO images (sha256, mime, data, created_at) VALUES (?, ?, ?, ?)",
             (sha, request.mimetype, data, now_ms()),
         )
-        db.execute("INSERT OR IGNORE INTO image_owners (sha256, owner_email) VALUES (?, ?)", (sha, session["email"]))
+        db.execute("INSERT OR IGNORE INTO image_owners (sha256, owner_id) VALUES (?, ?)", (sha, g.user["id"]))
     return {"url": url_for("graphs.image", sha=sha)}
 
 
@@ -225,8 +225,8 @@ def image(sha):
         abort(404)
     row = get_db().execute(
         "SELECT images.mime, images.data FROM images JOIN image_owners USING (sha256)"
-        " WHERE sha256 = ? AND owner_email = ?",
-        (sha, session["email"]),
+        " WHERE sha256 = ? AND owner_id = ?",
+        (sha, g.user["id"]),
     ).fetchone()
     if row is None:
         abort(404)

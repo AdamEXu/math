@@ -1,12 +1,12 @@
 import {
-  ChartSpline, CircleHelp, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, FolderOpen, LoaderCircle, LogOut,
-  Trash2, createIcons,
+  ChartSpline, CircleAlert, CircleCheck, CircleHelp, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, FolderOpen,
+  LoaderCircle, LogOut, Settings, Trash2, createIcons,
 } from "lucide";
 
 createIcons({
   icons: {
-    ChartSpline, CircleHelp, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, FolderOpen, LoaderCircle, LogOut,
-    Trash2,
+    ChartSpline, CircleAlert, CircleCheck, CircleHelp, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, FolderOpen,
+    LoaderCircle, LogOut, Settings, Trash2,
   },
 });
 

@@ -44,6 +44,7 @@ button, input { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; gap: 7px; height: 46px; padding: 0 10px;
   border: 0; background: transparent; color: #ddd; font-size: 16px; cursor: pointer;
 }
+.user-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .caret { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid currentColor; }
 
 .tb-avatar { width: 40px; height: 46px; display: inline-flex; align-items: center; justify-content: center; }
@@ -57,7 +58,9 @@ button, input { font: inherit; color: inherit; }
 }
 .menu-right { left: auto; right: 0; }
 .menu form { margin: 0; }
-.menu-label { padding: 6px 14px 8px; color: var(--muted); font-size: 13px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+.menu-user { padding: 6px 14px 9px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+.menu-name { font-size: 15px; color: var(--ink); }
+.menu-handle { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .menu-item {
   width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border: 0; background: none;
   text-align: left; color: var(--ink); text-decoration: none; cursor: pointer; font-size: 15px;

@@ -200,7 +200,7 @@ def test_dev_login_only_in_debug(app, monkeypatch):
         assert "Dev sign-in as dev@pinewood.edu" in client.get("/login").get_data(as_text=True)
         assert client.post("/auth/dev-login").status_code == 403
         assert client.post("/auth/dev-login", headers={"Origin": ORIGIN}).status_code == 302
-        assert client.get("/").status_code == 200
+        assert client.get("/").headers["Location"].startswith("/welcome")
     finally:
         app.debug = False
 

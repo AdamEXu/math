@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Set up your profile - math</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='account.css') }}">
+  <script type="module" src="{{ url_for('static', filename='js/handle.js') }}"></script>
+</head>
+<body>
+  {% from "_topbar.html" import topbar with context %}
+  {% call topbar() %}<span class="tb-title">Welcome</span>{% endcall %}
+  <main class="account">
+    <form class="panel" method="post" action="{{ url_for('account.finish_welcome') }}">
+      <h1>Set up your profile</h1>
+      <p class="lede">Pick a handle and the name people will see. Your handle is how others find you when you share graphs. You can change both later in settings.</p>
+      {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+      {% include "_profile_fields.html" %}
+      <div class="actions">
+        <button class="btn-primary" type="submit" id="handle-submit">Continue</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

@@ -7,6 +7,7 @@ os.environ.setdefault("DESMOS_API_KEY", "test")
 import pytest
 
 from app import app as flask_app
+from users import dev_user, update_profile
 
 ORIGIN = "http://localhost:5050"
 FETCH = {"X-Requested-With": "fetch"}
@@ -18,22 +19,31 @@ def app(tmp_path):
     yield flask_app
 
 
-def signed_in(app, email):
+def make_user(app, email, handle=None):
+    with app.app_context():
+        user = dev_user(email)
+        if handle:
+            assert update_profile(user["id"], handle, user["display_name"])[1] == {}
+        return user["id"]
+
+
+def signed_in(app, email, handle=None):
+    user_id = make_user(app, email, handle)
     client = app.test_client()
     with client.session_transaction() as sess:
-        sess["email"] = email
-        sess["name"] = email
+        sess["user_id"] = user_id
+    client.user_id = user_id
     return client
 
 
 @pytest.fixture
 def alice(app):
-    return signed_in(app, "alice@pinewood.edu")
+    return signed_in(app, "alice@pinewood.edu", "alice")
 
 
 @pytest.fixture
 def bob(app):
-    return signed_in(app, "bob@pinewood.edu")
+    return signed_in(app, "bob@pinewood.edu", "bob")
 
 
 @pytest.fixture

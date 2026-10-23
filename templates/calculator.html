@@ -8,7 +8,7 @@
   <script type="module" src="{{ url_for('static', filename='js/calculator.js') }}"></script>
 </head>
 <body data-graph-id="{{ graph.id }}">
-  {% from "_topbar.html" import topbar %}
+  {% from "_topbar.html" import topbar with context %}
   {% call topbar(save_status=True) %}
   <input id="title" class="tb-title title-input" type="text" value="{{ graph.title }}" placeholder="Untitled Graph"
          maxlength="200" autocomplete="off" spellcheck="false" aria-label="Graph title" disabled>

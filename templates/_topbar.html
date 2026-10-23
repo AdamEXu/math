@@ -17,10 +17,16 @@
   <div class="topbar-right">
     <div class="dropdown user-menu">
       <button class="user-button" type="button" aria-haspopup="menu" aria-expanded="false">
-        {{ (session.get("name") or session["email"]).split()[0] }}<span class="caret"></span>
+        <span class="user-name">{{ current_user.display_name }}</span><span class="caret"></span>
       </button>
       <div class="menu menu-right" role="menu" hidden>
-        <div class="menu-label">{{ session["email"] }}</div>
+        <div class="menu-user">
+          <div class="menu-name">{{ current_user.display_name }}</div>
+          {% if current_user.handle %}<div class="menu-handle">@{{ current_user.handle }}</div>{% endif %}
+        </div>
+        {% if current_user.handle %}
+        <a class="menu-item" role="menuitem" href="{{ url_for('account.settings') }}"><i data-lucide="settings"></i>Account settings</a>
+        {% endif %}
         <form method="post" action="{{ url_for('auth.logout') }}">
           <button class="menu-item" type="submit" role="menuitem"><i data-lucide="log-out"></i>Sign out</button>
         </form>
