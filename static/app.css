@@ -19,7 +19,7 @@ button, input { font: inherit; color: inherit; }
 
 .topbar {
   position: relative; height: 46px; flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 0 2px; background: #2a2a2a; color: #ddd; font-family: Arial, sans-serif; font-size: 16px; user-select: none;
+  padding: 0 8px 0 2px; background: #2a2a2a; color: #ddd; font-family: Arial, sans-serif; font-size: 16px; user-select: none;
 }
 .topbar-left, .topbar-right { display: flex; align-items: center; height: 100%; min-width: 0; z-index: 1; }
 
@@ -28,7 +28,6 @@ button, input { font: inherit; color: inherit; }
   color: #ddd; text-decoration: none;
 }
 .tb-icon svg { width: 22px; height: 22px; stroke-width: 1.6; }
-.tb-icon.small svg { width: 19px; height: 19px; stroke-width: 2; }
 .tb-icon:hover, .user-button:hover, .user-button[aria-expanded="true"] { color: #fff; }
 
 .tb-title-block { display: flex; align-items: center; height: 20px; padding: 0 12px; border-left: 1px solid #949494; min-width: 0; }
@@ -47,8 +46,6 @@ button, input { font: inherit; color: inherit; }
 .user-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .caret { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid currentColor; }
 
-.tb-avatar { width: 40px; height: 46px; display: inline-flex; align-items: center; justify-content: center; }
-.tb-avatar img { width: 20px; height: 20px; border-radius: 2px; display: block; }
 
 .dropdown { position: relative; }
 .menu {

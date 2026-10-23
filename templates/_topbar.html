@@ -1,7 +1,7 @@
 {% macro topbar(save_status=False) %}
 <header class="topbar">
   <div class="topbar-left">
-    <a class="tb-icon" href="{{ url_for('graphs.library') }}" id="open-library" title="My Graphs" aria-label="My Graphs"><i data-lucide="folder-open"></i></a>
+    <a class="tb-icon" href="{{ url_for('graphs.library') }}" id="open-library" title="Home" aria-label="Home"><i data-lucide="house"></i></a>
     <div class="tb-title-block">{{ caller() }}</div>
     {% if save_status %}
     <div class="save-status" id="status" data-status="loading" role="status" aria-live="polite">
@@ -32,8 +32,6 @@
         </form>
       </div>
     </div>
-    <a class="tb-icon small" href="https://help.desmos.com/hc/en-us" target="_blank" rel="noopener" title="Help" aria-label="Help"><i data-lucide="circle-help"></i></a>
-    <a class="tb-avatar" href="{{ url_for('graphs.library') }}" aria-label="math"><img src="/static/icon.svg" alt=""></a>
   </div>
 </header>
 {% endmacro %}
