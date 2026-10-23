@@ -214,3 +214,10 @@ body.library-page { background: #fff; }
   .sidebar .side-label, .sidebar .side-kebab, .side-toggle { display: none; }
   .search { width: 160px; }
 }
+
+.card { position: relative; }
+.card-owner { display: inline-flex; margin-right: 6px; flex: none; }
+.card-presence {
+  position: absolute; right: 12px; bottom: 11px; display: flex; padding: 2px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8); pointer-events: auto;
+}

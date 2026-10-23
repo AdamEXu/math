@@ -2,7 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import * as folderApi from "../api/folders";
 import * as graphApi from "../api/graphs";
-import { keys, updateFolders, updateGraphs } from "../api/queries";
+import { keys, updateFolders, updateGraphs, useMe } from "../api/queries";
+import { removeMember } from "../api/sharing";
 import type { Folder, FolderChanges, Graph } from "../api/types";
 import { useToast } from "../components/Toast";
 import { displayTitle } from "./views";
@@ -11,6 +12,7 @@ export function useLibraryActions() {
   const client = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
+  const me = useMe();
 
   const failed = (error: unknown) => {
     console.error(error);
@@ -39,6 +41,17 @@ export function useLibraryActions() {
       if (!confirm(`Delete “${displayTitle(graph)}”?`)) return;
       try {
         await graphApi.deleteGraph(graph.id);
+      } catch (error) {
+        return failed(error);
+      }
+      updateGraphs(client, (graphs) => graphs.filter((g) => g.id !== graph.id));
+      client.removeQueries({ queryKey: keys.graph(graph.id) });
+    },
+
+    async leaveGraph(graph: Graph) {
+      if (!me.data || !confirm(`Remove “${displayTitle(graph)}” from your shared graphs?`)) return;
+      try {
+        await removeMember(graph.id, me.data.id);
       } catch (error) {
         return failed(error);
       }

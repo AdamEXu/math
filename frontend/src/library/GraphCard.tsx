@@ -1,9 +1,21 @@
-import { Check, ChevronRight, EllipsisVertical, ExternalLink, FolderInput, FolderMinus, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  EllipsisVertical,
+  ExternalLink,
+  FolderInput,
+  FolderMinus,
+  LogOut,
+  Trash2,
+} from "lucide-react";
 import { type MouseEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { graphPath, thumbnailUrl } from "../api/graphs";
-import type { Folder, Graph } from "../api/types";
+import type { Folder, Graph, PublicUser } from "../api/types";
+import { Avatar } from "../components/Avatar";
+import { useHoverTip } from "../components/HoverTip";
 import { closeMenus, useDropdown } from "../components/menus";
+import { PresenceStack } from "../presence/PresenceStack";
 import { FolderIcon } from "../icons/LucideIcon";
 import { formatUpdated } from "./dates";
 import { GRAPH_DRAG_TYPE, displayTitle } from "./views";
@@ -11,8 +23,10 @@ import { GRAPH_DRAG_TYPE, displayTitle } from "./views";
 type GraphCardProps = {
   graph: Graph;
   folders: Folder[];
+  presence: PublicUser[];
   onMove: (folderId: string | null) => void;
   onDelete: () => void;
+  onLeave: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 };
@@ -84,8 +98,11 @@ function MoveSubmenu({ graph, folders, onMove }: Pick<GraphCardProps, "graph" | 
   );
 }
 
-export function GraphCard({ graph, folders, onMove, onDelete, onDragStart, onDragEnd }: GraphCardProps) {
+export function GraphCard(props: GraphCardProps) {
+  const { graph, folders, presence, onMove, onDelete, onLeave, onDragStart, onDragEnd } = props;
   const { open, toggleProps } = useDropdown();
+  const { tipProps, tip } = useHoverTip();
+  const owned = graph.role === "owner";
   const [submenuOpen, setSubmenuOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const title = displayTitle(graph);
@@ -132,6 +149,11 @@ export function GraphCard({ graph, folders, onMove, onDelete, onDragStart, onDra
       }}
     >
       <div className="card-head">
+        {!owned && (
+          <span className="card-owner" {...tipProps(`Owned by ${graph.owner.display_name}`)}>
+            <Avatar user={graph.owner} size={20} />
+          </span>
+        )}
         <Link className={`card-title${graph.title ? "" : " untitled"}`} to={href} title={title} draggable={false}>
           {title}
         </Link>
@@ -168,10 +190,17 @@ export function GraphCard({ graph, folders, onMove, onDelete, onDragStart, onDra
               </button>
               {showSubmenu && <MoveSubmenu graph={graph} folders={folders} onMove={onMove} />}
             </div>
-            <button className="menu-item danger" type="button" role="menuitem" onClick={onDelete}>
-              <Trash2 />
-              Delete
-            </button>
+            {owned ? (
+              <button className="menu-item danger" type="button" role="menuitem" onClick={onDelete}>
+                <Trash2 />
+                Delete
+              </button>
+            ) : (
+              <button className="menu-item danger" type="button" role="menuitem" onClick={onLeave}>
+                <LogOut />
+                Remove from shared
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -185,6 +214,12 @@ export function GraphCard({ graph, folders, onMove, onDelete, onDragStart, onDra
           {formatUpdated(graph.updated_at)}
         </time>
       </Link>
+      {presence.length > 0 && (
+        <div className="card-presence">
+          <PresenceStack users={presence} size="card" />
+        </div>
+      )}
+      {tip}
     </div>
   );
 }

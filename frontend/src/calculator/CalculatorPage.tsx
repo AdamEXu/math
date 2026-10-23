@@ -27,8 +27,8 @@ export function CalculatorPage() {
   const me = useMe();
   const [liveRole, setLiveRole] = useState<{ graphId: string; role: Role } | null>(null);
   const [revoked, setRevoked] = useState<string | null>(null);
-  if (isNotFound(graph.error)) return <NotFoundPage />;
   if (revoked === graphId) return <NoAccess />;
+  if (isNotFound(graph.error)) return <NotFoundPage />;
   const role = liveRole?.graphId === graphId ? liveRole.role : graph.data?.role;
   if (!role || !me.data) return null;
   return (

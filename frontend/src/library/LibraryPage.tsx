@@ -2,7 +2,7 @@ import { ChartSpline, Folder as FolderGlyph, Users } from "lucide-react";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { useMatch } from "react-router";
 import { useFolders, useGraphs } from "../api/queries";
-import type { Folder, Graph } from "../api/types";
+import type { Folder, Graph, PublicUser } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { closeMenus } from "../components/menus";
 import type { Point } from "../components/overlay/floating";
@@ -11,6 +11,7 @@ import { loadDesmos } from "../calculator/desmos";
 import { useBodyClass } from "../hooks/useBodyClass";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { NotFoundPage } from "../pages/NotFoundPage";
+import { useLibraryPresence } from "../presence/useLibraryPresence";
 import { FolderEditor } from "./FolderEditor";
 import { FolderMenu } from "./FolderMenu";
 import { GraphCard } from "./GraphCard";
@@ -20,6 +21,7 @@ import { useLibraryActions } from "./useLibraryActions";
 import { type LibraryView, displayTitle, inView, viewKey, viewName } from "./views";
 
 const DESMOS_PRELOAD_MS = 1000;
+const NO_ONE: PublicUser[] = [];
 
 type Editing = { folder: Folder | null; point: Point };
 type MenuTarget = { folder: Folder; point: Point };
@@ -93,6 +95,7 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
   };
 
   const highlightedId = menu?.folder.id ?? editing?.folder?.id ?? null;
+  const presence = useLibraryPresence(graphs.map((graph) => graph.id));
 
   return (
     <>
@@ -144,8 +147,10 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
                 key={graph.id}
                 graph={graph}
                 folders={folders}
+                presence={presence[graph.id] ?? NO_ONE}
                 onMove={(folderId) => void actions.moveGraph(graph, folderId)}
                 onDelete={() => void actions.deleteGraph(graph)}
+                onLeave={() => void actions.leaveGraph(graph)}
                 onDragStart={() => {
                   dragged.current = graph;
                 }}
@@ -169,7 +174,7 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
               Drag graphs onto the folder in the sidebar, or use <strong>Move to folder</strong> in a graph's menu.
             </EmptyState>
           )}
-          {view === "shared" && (
+          {view === "shared" && inViewGraphs.length === 0 && (
             <EmptyState id="empty-shared" icon={<Users />} title="Nothing shared with you yet">
               Graphs other people share with you will show up here.
             </EmptyState>

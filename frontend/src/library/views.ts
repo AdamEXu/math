@@ -13,8 +13,9 @@ export function viewName(view: LibraryView) {
 }
 
 export function inView(graph: Graph, view: LibraryView) {
-  if (view === "shared") return false;
-  return view === "all" || graph.folder_id === view.folder.id;
+  if (view === "shared") return graph.role !== "owner";
+  if (view === "all") return graph.role === "owner";
+  return graph.folder_id === view.folder.id;
 }
 
 export function displayTitle(graph: Graph) {
