@@ -1,0 +1,11 @@
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 400; display: flex; align-items: flex-start; justify-content: center;
+  padding: 10vh 16px 48px; overflow-y: auto; background: rgba(0, 0, 0, 0.4);
+}
+.modal-dialog { position: relative; width: 100%; max-width: 460px; outline: 0; }
+.modal-dialog .panel { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25); }
+.modal-close {
+  position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; display: inline-flex; align-items: center;
+  justify-content: center; padding: 0; border: 0; border-radius: 4px; background: none; color: #777; cursor: pointer;
+}
+.modal-close:hover { background: #f0f0f0; color: #333; }

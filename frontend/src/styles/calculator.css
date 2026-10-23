@@ -1,0 +1,35 @@
+body.calculator-page { display: flex; flex-direction: column; overflow: hidden; }
+#calculator { flex: 1; min-height: 0; }
+
+.title-input {
+  width: 120px; min-width: 40px; max-width: 34vw; height: 28px; margin: 0 -6px; padding: 0 5px; border: 1px solid transparent; border-radius: 3px;
+  background: transparent; color: #ddd;
+}
+.title-input::placeholder { color: #ddd; opacity: 1; }
+.title-input:hover:not(:disabled) { border-color: #555; }
+.title-input:focus { outline: 0; color: #fff; border-color: #888; background: #333; }
+
+.save-status {
+  height: 34px; padding: 0 15px; display: inline-flex; align-items: center;
+  border: 1px solid #666; border-radius: 4px; color: #666; font-size: 14.4px; white-space: nowrap;
+}
+.save-status > span { display: none; align-items: center; gap: 6px; }
+.save-status svg { width: 15px; height: 15px; }
+.save-status[data-status="loading"] [data-when="loading"],
+.save-status[data-status="saved"] [data-when="saved"],
+.save-status[data-status="saving"] [data-when="saving"],
+.save-status[data-status="offline"] [data-when="offline"],
+.save-status[data-status="error"] [data-when="error"] { display: inline-flex; }
+.save-status[data-status="offline"], .save-status[data-status="error"] { color: #d9a441; border-color: #7d6430; }
+
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 900px) {
+  .calculator-page .wordmark { display: none; }
+}
+@media (max-width: 600px) {
+  .title-input { max-width: 30vw; }
+  .save-status { font-size: 0; padding: 0 8px; }
+  .save-status > span { gap: 0; }
+}
