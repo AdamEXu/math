@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>math</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      font-family: system-ui, -apple-system, sans-serif; color: #222; background: #fafafa;
+    }
+    a.button {
+      padding: 10px 20px; border: 1px solid #ccc; border-radius: 6px; background: #fff;
+      color: inherit; text-decoration: none; font-size: 15px;
+    }
+    a.button:hover { background: #f0f0f0; }
+    .error { color: #b00020; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <img src="/static/icon.svg" width="48" height="48" alt="">
+  <a class="button" href="{{ url_for('auth.google') }}">Sign in with Google</a>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</body>
+</html>
