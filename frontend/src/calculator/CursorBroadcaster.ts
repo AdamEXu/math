@@ -1,14 +1,28 @@
 import type { Awareness } from "y-protocols/awareness";
-import { type CursorAnchor, type CursorPresence, locate } from "./cursorAnchors";
+import { type CursorAnchor, type CursorPresence, locate, sameAnchor } from "./cursorAnchors";
 import type { Calculator } from "./desmos";
+import type { Patches } from "./liveLayer";
 import { readCaret } from "./remoteCaret";
 
 const SEND_MS = 50;
+const EXIT_STEPS = 10;
+
+type Point = { x: number; y: number };
 const OBSERVER = "graphpaperBounds.cursors";
+
+export type BroadcastHooks = {
+  beforeCaret: () => void;
+  beginDrag: () => void;
+  endDrag: () => void;
+  live: () => Patches | null;
+};
 
 export class CursorBroadcaster {
   private pressed = false;
-  private pointer: { x: number; y: number } | null = null;
+  private pointer: Point | null = null;
+  private inside: Point | null = null;
+  private leftAt: Point | null = null;
+  private sentCursor: CursorAnchor | null = null;
   private sent: string | null = null;
   private lastSentAt = 0;
   private timer: number | null = null;
@@ -19,7 +33,7 @@ export class CursorBroadcaster {
     private readonly awareness: Awareness,
     private readonly calc: Calculator,
     private readonly root: HTMLElement,
-    private readonly beforeSend: () => void,
+    private readonly hooks: BroadcastHooks,
   ) {
     const on = <T extends Event>(target: EventTarget, type: string, handler: (event: T) => void, capture = true) => {
       const listener = handler as EventListener;
@@ -32,20 +46,24 @@ export class CursorBroadcaster {
     });
     on<PointerEvent>(window, "pointerdown", (event) => {
       this.pointer = { x: event.clientX, y: event.clientY };
-      this.pressed = event.button === 0 && root.contains(event.target as Node);
+      this.setPressed(event.button === 0 && root.contains(event.target as Node));
       this.schedule();
     });
     const release = (event: PointerEvent) => {
-      this.pressed = false;
+      this.setPressed(false);
       if (event.pointerType === "touch") this.pointer = null;
       this.schedule();
     };
     on(window, "pointerup", release);
     on(window, "pointercancel", release);
     on<PointerEvent>(document, "pointerout", (event) => {
-      if (event.relatedTarget === null) this.hide();
+      if (event.relatedTarget !== null) return;
+      this.leftAt = { x: event.clientX, y: event.clientY };
+      this.hide();
     });
-    on(window, "blur", () => this.hide());
+    on<FocusEvent>(window, "blur", (event) => {
+      if (event.target === window) this.hide();
+    });
     on(document, "visibilitychange", () => {
       if (document.visibilityState === "hidden") this.hide();
     });
@@ -60,8 +78,15 @@ export class CursorBroadcaster {
 
   private hide() {
     this.pointer = null;
-    this.pressed = false;
+    this.setPressed(false);
     this.schedule();
+  }
+
+  private setPressed(pressed: boolean) {
+    if (pressed === this.pressed) return;
+    this.pressed = pressed;
+    if (pressed) this.hooks.beginDrag();
+    else this.hooks.endDrag();
   }
 
   private editingElement() {
@@ -79,12 +104,19 @@ export class CursorBroadcaster {
   private send() {
     this.timer = null;
     if (this.disposed) return;
-    let cursor: CursorAnchor | null = null;
-    try {
-      cursor = this.pointer ? locate(this.root, this.calc, this.pointer) : null;
-    } catch {
-      cursor = null;
+    let cursor = this.pointer ? this.locate(this.pointer) : null;
+    let exiting = false;
+    if (cursor) {
+      this.inside = this.pointer;
+    } else if (this.sentCursor) {
+      const exit = this.exitAnchor();
+      if (exit && !sameAnchor(exit, this.sentCursor)) {
+        cursor = exit;
+        exiting = true;
+      }
     }
+    this.leftAt = null;
+    if (!cursor) this.inside = null;
     const active = this.editingElement();
     const editing = active?.closest("[expr-id]")?.getAttribute("expr-id") ?? null;
     let caret = null;
@@ -93,14 +125,40 @@ export class CursorBroadcaster {
     } catch {
       caret = null;
     }
-    this.publish({ cursor, pressed: !!cursor && this.pressed, editing, caret });
+    const live = this.pressed ? this.hooks.live() : null;
+    this.publish({ cursor, pressed: !!cursor && this.pressed, editing, caret, live });
+    if (exiting) this.timer = window.setTimeout(() => this.send(), SEND_MS);
+  }
+
+  private locate(point: Point) {
+    try {
+      return locate(this.root, this.calc, point);
+    } catch {
+      return null;
+    }
+  }
+
+  private exitAnchor() {
+    const end = this.leftAt ?? this.pointer;
+    if (!end || !this.inside) return null;
+    let inside: Point = this.inside;
+    const direct = this.locate(end);
+    if (direct) return direct;
+    let outside = end;
+    for (let i = 0; i < EXIT_STEPS; i++) {
+      const mid: Point = { x: (inside.x + outside.x) / 2, y: (inside.y + outside.y) / 2 };
+      if (this.locate(mid)) inside = mid;
+      else outside = mid;
+    }
+    return this.locate(inside);
   }
 
   private publish(presence: CursorPresence) {
     const key = JSON.stringify(presence);
     if (key === this.sent) return;
-    if (presence.pressed || presence.caret) this.beforeSend();
+    if (presence.caret) this.hooks.beforeCaret();
     this.sent = key;
+    this.sentCursor = presence.cursor ?? null;
     this.lastSentAt = performance.now();
     this.awareness.setLocalState({ ...this.awareness.getLocalState(), ...presence });
   }
@@ -111,6 +169,6 @@ export class CursorBroadcaster {
     if (this.timer !== null) clearTimeout(this.timer);
     for (const detach of this.detach) detach();
     if (this.awareness.getLocalState() !== null)
-      this.publish({ cursor: null, pressed: false, editing: null, caret: null });
+      this.publish({ cursor: null, pressed: false, editing: null, caret: null, live: null });
   }
 }

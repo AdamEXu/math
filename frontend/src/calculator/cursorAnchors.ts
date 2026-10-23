@@ -1,4 +1,5 @@
 import type { Calculator } from "./desmos";
+import type { Patches } from "./liveLayer";
 import type { CaretPosition } from "./remoteCaret";
 
 export type CursorAnchor =
@@ -12,6 +13,7 @@ export type CursorPresence = {
   pressed?: boolean;
   editing?: string | null;
   caret?: CaretPosition | null;
+  live?: Patches | null;
 };
 
 type Point = { x: number; y: number };

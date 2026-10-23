@@ -3,6 +3,20 @@ import { uploadImage, uploadThumbnail } from "../api/graphs";
 import type { Role } from "../api/types";
 import { CALCULATOR_OPTIONS, type Calculator, type DesmosApi } from "./desmos";
 import { CursorBroadcaster } from "./CursorBroadcaster";
+import {
+  type Patches,
+  type Tick,
+  diffItems,
+  isPatches,
+  isPlaying,
+  itemsById,
+  patchApplied,
+  sameTick,
+  sliderSettings,
+  tickOf,
+  withPatches,
+  withTick,
+} from "./liveLayer";
 import { applyToCalculator, localView } from "./remote";
 import { type ConnectionStatus, GraphSocket } from "./socket";
 import {
@@ -21,6 +35,7 @@ import {
 const CAPTURE_MS = 100;
 const VIEWPORT_MS = 500;
 const THUMBNAIL_IDLE_MS = 3000;
+const RETIRE_MS = 1000;
 const LEAVE_TIMEOUT_MS = 3000;
 const THUMBNAIL = { width: 320, height: 240, targetPixelRatio: 2 };
 const DEFAULT_TITLE = /^Untitled Graph( \(\d+\))?$/;
@@ -95,6 +110,15 @@ export class GraphSession {
   private disposed = false;
   private readonly detachUi: (() => void)[] = [];
   private readonly cursors: CursorBroadcaster | null = null;
+  private dragging = false;
+  private dragPatches: Patches | null = null;
+  private readonly remoteLive = new Map<number, Patches>();
+  private readonly liveBase = new Map<number, Patches>();
+  private readonly retired = new Map<number, { patches: Patches; base: Patches; until: number }>();
+  private retireTimer: number | null = null;
+  private readonly committedTicks = new Map<string, Tick>();
+  private sliderKeys = new Map<string, string>();
+  private readonly playStarts = new Map<string, Tick>();
 
   static async open({ graphId, userId, role, doc: update, desmos, container, titleInput, hooks }: OpenOptions) {
     const doc = new Y.Doc();
@@ -144,7 +168,7 @@ export class GraphSession {
       onRole: hooks.onRole,
       onRevoked: hooks.onRevoked,
       onSignedOut: hooks.onSignedOut,
-      beforeRemote: () => this.flushPendingCapture(),
+      beforeRemote: () => this.beforeRemote(),
       afterRemote: () => this.pushToDesmos(),
     });
 
@@ -152,12 +176,24 @@ export class GraphSession {
       if (origin === LOCAL) this.scheduleThumbnail();
       else this.remoteDirty = true;
     });
+    const initial = calc.getState();
+    this.rememberCommitted(initial);
+    this.trackSliders(initial, false);
     calc.observeEvent("change", (_name, event) => {
-      if (event.isUserInitiated && !this.applyingRemote) this.scheduleCapture();
+      const user = event.isUserInitiated && !this.applyingRemote;
+      const sliderChanged = this.trackSliders(this.calc.getState(), user);
+      if (sliderChanged) this.capture();
+      else if (user) this.scheduleCapture();
     });
+    this.socket.awareness.on("change", this.onAwareness);
     if (this.canEdit) {
       this.bindTitle();
-      this.cursors = new CursorBroadcaster(this.socket.awareness, calc, container, () => this.capture());
+      this.cursors = new CursorBroadcaster(this.socket.awareness, calc, container, {
+        beforeCaret: () => this.capture(),
+        beginDrag: () => this.beginDrag(),
+        endDrag: () => this.endDrag(),
+        live: () => (this.dragPatches = this.ownPatches()),
+      });
     }
     this.bindExit();
   }
@@ -203,6 +239,170 @@ export class GraphSession {
     );
   }
 
+  private beforeRemote() {
+    if (this.dragging) this.dragPatches = this.ownPatches();
+    this.flushPendingCapture();
+  }
+
+  private beginDrag() {
+    if (!this.canEdit || this.disposed) return;
+    this.dragging = true;
+    this.dragPatches = null;
+  }
+
+  private endDrag() {
+    if (!this.dragging) return;
+    this.dragging = false;
+    this.dragPatches = null;
+    this.capture();
+  }
+
+  private trackSliders(state: DesmosState, user: boolean) {
+    const keys = new Map<string, string>();
+    let changed = false;
+    for (const item of state.expressions?.list ?? []) {
+      const key = sliderSettings(item);
+      if (key === null) continue;
+      const id = String(item.id);
+      keys.set(id, key);
+      if (user && this.sliderKeys.get(id) !== key) {
+        this.playStarts.set(id, tickOf(item));
+        changed = true;
+      }
+    }
+    this.sliderKeys = keys;
+    return changed;
+  }
+
+  private rememberCommitted(state: DesmosState) {
+    this.committedTicks.clear();
+    for (const item of state.expressions?.list ?? []) this.committedTicks.set(String(item.id), tickOf(item));
+  }
+
+  private remoteLayers() {
+    return [...this.remoteLive.values(), ...[...this.retired.values()].map((entry) => entry.patches)];
+  }
+
+  private ownPatches() {
+    const committed = readState(this.doc);
+    if (!committed) return null;
+    const local = this.calc.getState();
+    const items = itemsById(local);
+    const remote = this.remoteLayers();
+    return diffItems(
+      local,
+      committed,
+      (id, key) =>
+        ((key === "latex" || key === "slider") && isPlaying(items.get(id))) ||
+        remote.some((layer) => !!layer[id] && key in layer[id]),
+    );
+  }
+
+  private withoutEphemeral(state: DesmosState, committed: DesmosState): DesmosState {
+    const docItems = itemsById(committed);
+    const remote = this.remoteLayers();
+    const list = (state.expressions?.list ?? []).map((item) => {
+      const id = String(item.id);
+      const prev = docItems.get(id);
+      if (!prev || prev.type !== item.type) return item;
+      let next = item;
+      for (const layer of remote) for (const key of Object.keys(layer[id] ?? {})) next = { ...next, [key]: prev[key] };
+      if (isPlaying(item)) next = withTick(next, this.playStarts.get(id) ?? tickOf(prev));
+      return next;
+    });
+    return { ...state, expressions: { ...state.expressions, list } };
+  }
+
+  private keepTicking(target: DesmosState, committed: DesmosState, local: DesmosState): DesmosState {
+    const localItems = itemsById(local);
+    const committedItems = itemsById(committed);
+    const list = (target.expressions?.list ?? []).map((item) => {
+      const id = String(item.id);
+      const mine = localItems.get(id);
+      const unchanged = sameTick(this.committedTicks.get(id), tickOf(committedItems.get(id)));
+      return isPlaying(item) && isPlaying(mine) && unchanged ? withTick(item, tickOf(mine)) : item;
+    });
+    return { ...target, expressions: { ...target.expressions, list } };
+  }
+
+  private readonly onAwareness = ({
+    added,
+    updated,
+    removed,
+  }: {
+    added: number[];
+    updated: number[];
+    removed: number[];
+  }) => {
+    if (this.disposed) return;
+    const awareness = this.socket.awareness;
+    const states = awareness.getStates();
+    let changed = false;
+    for (const clientId of [...added, ...updated, ...removed]) {
+      if (clientId === awareness.clientID) continue;
+      const live = states.get(clientId)?.live;
+      const next = isPatches(live) ? live : null;
+      const prev = this.remoteLive.get(clientId) ?? null;
+      if (deepEqual(prev, next)) continue;
+      changed = true;
+      if (next) {
+        this.remoteLive.set(clientId, next);
+        this.retired.delete(clientId);
+        this.liveBase.set(clientId, this.committedFields(next, this.liveBase.get(clientId)));
+      } else if (prev) {
+        this.remoteLive.delete(clientId);
+        const base = this.liveBase.get(clientId) ?? {};
+        this.liveBase.delete(clientId);
+        this.retired.set(clientId, { patches: prev, base, until: performance.now() + RETIRE_MS });
+      }
+    }
+    if (!changed) return;
+    this.armRetireTimer();
+    this.beforeRemote();
+    this.remoteDirty = true;
+    this.pushToDesmos();
+  };
+
+  private committedFields(patches: Patches, known: Patches = {}) {
+    const missing = Object.entries(patches).some(([id, patch]) =>
+      Object.keys(patch).some((key) => !known[id] || !(key in known[id])),
+    );
+    if (!missing) return known;
+    const items = itemsById(readState(this.doc) ?? {});
+    const base: Patches = { ...known };
+    for (const [id, patch] of Object.entries(patches)) {
+      const item = items.get(id);
+      if (!item) continue;
+      const fields = { ...base[id] };
+      for (const key of Object.keys(patch)) if (!(key in fields)) fields[key] = item[key] ?? null;
+      base[id] = fields;
+    }
+    return base;
+  }
+
+  private pruneRetired(committed: DesmosState) {
+    const now = performance.now();
+    for (const [clientId, entry] of this.retired)
+      if (now >= entry.until || !patchApplied(committed, entry.base) || patchApplied(committed, entry.patches))
+        this.retired.delete(clientId);
+  }
+
+  private armRetireTimer() {
+    if (this.retireTimer !== null) clearTimeout(this.retireTimer);
+    this.retireTimer = null;
+    if (!this.retired.size || this.disposed) return;
+    const until = Math.min(...[...this.retired.values()].map((entry) => entry.until));
+    this.retireTimer = window.setTimeout(
+      () => {
+        this.retireTimer = null;
+        this.remoteDirty = true;
+        this.pushToDesmos();
+        this.armRetireTimer();
+      },
+      Math.max(0, until - performance.now()) + 10,
+    );
+  }
+
   scheduleCapture(delay = CAPTURE_MS) {
     if (this.disposed || !this.canEdit) return;
     this.captureTimer ??= window.setTimeout(() => this.capture(), delay);
@@ -211,8 +411,11 @@ export class GraphSession {
   capture() {
     if (this.captureTimer !== null) clearTimeout(this.captureTimer);
     this.captureTimer = null;
-    if (!this.canEdit) return;
-    const state = this.calc.getState();
+    if (!this.canEdit || this.dragging) return;
+    const committed = readState(this.doc);
+    const state = committed ? this.withoutEphemeral(this.calc.getState(), committed) : this.calc.getState();
+    this.playStarts.clear();
+    this.rememberCommitted(state);
     const now = performance.now();
     const owner = this.role === "owner";
     const viewportChanged = owner && !deepEqual(state.graph?.viewport, readViewport(this.doc));
@@ -229,11 +432,16 @@ export class GraphSession {
   private pushToDesmos() {
     if (!this.remoteDirty || this.disposed) return;
     this.remoteDirty = false;
-    const target = readState(this.doc);
-    if (target) {
+    const committed = readState(this.doc);
+    if (committed) {
+      this.pruneRetired(committed);
+      const layers = this.remoteLayers();
+      if (this.dragging && this.dragPatches) layers.push(this.dragPatches);
       this.applyingRemote = true;
       try {
         const local: DesmosState = this.calc.getState();
+        const target = this.keepTicking(withPatches(committed, layers), committed, local);
+        this.rememberCommitted(committed);
         applyToCalculator(this.calc, localView(target, local, !this.canEdit));
       } finally {
         this.applyingRemote = false;
@@ -280,6 +488,7 @@ export class GraphSession {
   }
 
   async leave() {
+    this.endDrag();
     this.flushPendingCapture();
     const work: Promise<unknown>[] = [this.socket.whenIdle()];
     if (this.thumbnailTimer !== null) work.push(this.uploadThumbnail());
@@ -288,9 +497,12 @@ export class GraphSession {
 
   dispose() {
     if (this.disposed) return;
+    this.endDrag();
     this.flushPendingCapture();
     this.disposed = true;
     this.cursors?.dispose();
+    this.socket.awareness.off("change", this.onAwareness);
+    if (this.retireTimer !== null) clearTimeout(this.retireTimer);
     for (const detach of this.detachUi) detach();
     if (window.graphSession === this) delete window.graphSession;
 

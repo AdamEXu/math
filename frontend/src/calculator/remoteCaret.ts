@@ -4,6 +4,7 @@ export type CaretPosition = {
   path: number[];
   offset: number;
   selection?: [number, number];
+  box?: [number, number, number];
   sig: string;
 };
 
@@ -104,7 +105,20 @@ export function readCaret(active: Element | null): CaretPosition | null {
     sig: signature(root),
   };
   if (start >= 0) caret.selection = [start, start + picked.length];
+  if (cursor) caret.box = cursorBox(block, cursor);
   return caret;
+}
+
+const fontSize = (el: Element) => parseFloat(getComputedStyle(el).fontSize) || 1;
+const round = (n: number) => Math.round(n * 10000) / 10000;
+
+function cursorBox(block: Element, cursor: Element): [number, number, number] | undefined {
+  const b = block.getBoundingClientRect();
+  const c = cursor.getBoundingClientRect();
+  const line = parseFloat(getComputedStyle(cursor).borderLeftWidth) || 1;
+  const em = fontSize(block);
+  if (c.height <= 0) return undefined;
+  return [round((c.left + line / 2 - b.left) / em), round((c.top - b.top) / em), round(c.height / em)];
 }
 
 export function caretBox(container: HTMLElement, caret: CaretPosition): CaretBox | null {
@@ -127,6 +141,11 @@ export function caretBox(container: HTMLElement, caret: CaretPosition): CaretBox
     const last = children[end - 1]?.getBoundingClientRect();
     if (first && last) selection = { left: first.left, right: last.right };
   }
+  if (caret.box) {
+    const em = fontSize(block);
+    const [dx, dy, h] = caret.box;
+    return { x: blockRect.left + dx * em, top: blockRect.top + dy * em, height: h * em, selection };
+  }
   const line = after ?? before ?? blockRect;
   if (!Number.isFinite(x) || line.height <= 0) return null;
   return { x, top: line.top, height: line.height, selection };
@@ -143,6 +162,10 @@ export function isCaret(value: unknown): value is CaretPosition {
     Array.isArray(c.path) &&
     c.path.length <= 64 &&
     c.path.every(Number.isInteger) &&
+    (c.box === undefined ||
+      (Array.isArray(c.box) &&
+        c.box.length === 3 &&
+        c.box.every((n) => typeof n === "number" && Number.isFinite(n)))) &&
     (c.selection === undefined ||
       (Array.isArray(c.selection) && c.selection.length === 2 && c.selection.every(Number.isInteger)))
   );

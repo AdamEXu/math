@@ -20,7 +20,6 @@ function readRemotes(session: GraphSession, meId: string): Remote[] {
     const cursor = isAnchor(state.cursor) ? state.cursor : null;
     const editing = typeof state.editing === "string" ? state.editing : null;
     const caret = isCaret(state.caret) ? state.caret : null;
-    if (!cursor && !editing) continue;
     remotes.push({ clientId, user, cursor, pressed: state.pressed === true, editing, caret });
   }
   return remotes.length ? remotes : NO_ONE;
@@ -56,7 +55,7 @@ export function LiveCursors({ session, meId }: { session: GraphSession; meId: st
   if (!motion) return null;
 
   return createPortal(
-    <div className="live-cursors" aria-hidden="true">
+    <div className="live-cursors" aria-hidden="true" ref={(el) => motion.bindLayer(el)}>
       {remotes.map((remote) => {
         const color = presenceColor(remote.user.id);
         const name = remote.user.display_name;

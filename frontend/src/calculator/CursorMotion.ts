@@ -6,6 +6,10 @@ const SMOOTHING_MS = 55;
 const SETTLED_PX = 0.3;
 const TIP_PX = 4;
 const OBSERVER = "graphpaperBounds.liveCursors";
+const HISTORY_MS = 100;
+const EXIT_MS = 160;
+const FADE_MS = 120;
+const MOVING_PX_PER_MS = 0.05;
 
 export type RemoteCursor = {
   clientId: number;
@@ -16,6 +20,8 @@ export type RemoteCursor = {
 };
 
 type Point = { x: number; y: number };
+type Sample = Point & { t: number };
+type Exit = Point & { vx: number; vy: number; start: number; duration: number };
 
 type Track = {
   anchor: CursorAnchor | null;
@@ -24,6 +30,8 @@ type Track = {
   caret: CaretPosition | null;
   residual: Point;
   shown: Point | null;
+  history: Sample[];
+  exit: Exit | null;
   cursorEl: HTMLElement | null;
   editEl: HTMLElement | null;
   caretEl: HTMLElement | null;
@@ -36,6 +44,8 @@ export class CursorMotion {
   private readonly tracks = new Map<number, Track>();
   private frame: number | null = null;
   private lastFrameAt = 0;
+  private layer: HTMLElement | null = null;
+  private clip = "";
   private disposed = false;
 
   constructor(
@@ -55,6 +65,8 @@ export class CursorMotion {
         caret: null,
         residual: { x: 0, y: 0 },
         shown: null,
+        history: [],
+        exit: null,
         cursorEl: null,
         editEl: null,
         caretEl: null,
@@ -97,6 +109,24 @@ export class CursorMotion {
     this.loop();
   }
 
+  bindLayer(el: HTMLElement | null) {
+    this.layer = el;
+    this.clip = "";
+  }
+
+  private clipLayer() {
+    if (!this.layer) return;
+    const r = this.root.getBoundingClientRect();
+    let path = `M${r.left} ${r.top}H${r.right}V${r.bottom}H${r.left}Z`;
+    const keys = this.root.querySelector(".dcg-keys-container")?.getBoundingClientRect();
+    if (keys && keys.width > 0 && keys.height > 0)
+      path += `M${keys.left} ${keys.top}H${keys.right}V${keys.bottom}H${keys.left}Z`;
+    const clip = `path(evenodd, "${path}")`;
+    if (clip === this.clip) return;
+    this.clip = clip;
+    this.layer.style.clipPath = clip;
+  }
+
   bindCursor(clientId: number, el: HTMLElement | null) {
     const track = this.track(clientId);
     track.cursorEl = el;
@@ -131,25 +161,26 @@ export class CursorMotion {
   private render(dt: number) {
     if (this.disposed) return;
     const decay = Math.exp(-dt / SMOOTHING_MS);
+    this.clipLayer();
     for (const track of this.tracks.values()) {
-      const target = this.locate(track.anchor);
+      const now = performance.now();
+      const target = track.caret ? null : this.locate(track.anchor);
       if (target) {
         const r = track.residual;
         r.x = Math.abs(r.x * decay) < SETTLED_PX ? 0 : r.x * decay;
         r.y = Math.abs(r.y * decay) < SETTLED_PX ? 0 : r.y * decay;
         track.shown = { x: target.x + r.x, y: target.y + r.y };
+        track.exit = null;
+        track.history.push({ ...track.shown, t: now });
+        while (track.history.length > 2 && now - (track.history[0] as Sample).t > HISTORY_MS) track.history.shift();
       } else {
+        if (track.shown && !track.caret) track.exit = this.exitFrom(track.shown, track.history, now);
+        if (track.caret) track.exit = null;
         track.shown = null;
+        track.history = [];
         track.residual = { x: 0, y: 0 };
       }
-      const cursorStyle = track.shown
-        ? `translate3d(${(track.shown.x - TIP_PX).toFixed(1)}px, ${(track.shown.y - TIP_PX).toFixed(1)}px, 0)`
-        : "none";
-      if (track.cursorEl && cursorStyle !== track.cursorStyle) {
-        track.cursorStyle = cursorStyle;
-        track.cursorEl.style.display = track.shown ? "" : "none";
-        if (track.shown) track.cursorEl.style.transform = cursorStyle;
-      }
+      this.renderCursor(track, now);
 
       let box = null;
       try {
@@ -175,6 +206,49 @@ export class CursorMotion {
         }
       }
     }
+  }
+
+  private exitFrom(from: Point, history: Sample[], now: number): Exit {
+    const first = history[0];
+    const last = history[history.length - 1];
+    const span = first && last ? last.t - first.t : 0;
+    const fresh = !!last && now - last.t < HISTORY_MS;
+    let vx = 0;
+    let vy = 0;
+    if (first && last && fresh && span >= 16) {
+      vx = (last.x - first.x) / span;
+      vy = (last.y - first.y) / span;
+    }
+    const moving = Math.hypot(vx, vy) >= MOVING_PX_PER_MS;
+    return moving
+      ? { ...from, vx, vy, start: now, duration: EXIT_MS }
+      : { ...from, vx: 0, vy: 0, start: now, duration: FADE_MS };
+  }
+
+  private renderCursor(track: Track, now: number) {
+    let point = track.shown;
+    let opacity = 1;
+    const exit = track.exit;
+    if (!point && exit) {
+      const elapsed = now - exit.start;
+      if (elapsed >= exit.duration) {
+        track.exit = null;
+      } else {
+        const travel = elapsed * (1 - elapsed / (2 * exit.duration));
+        point = { x: exit.x + exit.vx * travel, y: exit.y + exit.vy * travel };
+        opacity = 1 - elapsed / exit.duration;
+      }
+    }
+    const cursorStyle = point
+      ? `translate3d(${(point.x - TIP_PX).toFixed(1)}px, ${(point.y - TIP_PX).toFixed(1)}px, 0)|${opacity.toFixed(2)}`
+      : "none";
+    if (!track.cursorEl || cursorStyle === track.cursorStyle) return;
+    track.cursorStyle = cursorStyle;
+    const style = track.cursorEl.style;
+    style.display = point ? "" : "none";
+    if (!point) return;
+    style.transform = cursorStyle.slice(0, cursorStyle.indexOf("|"));
+    style.opacity = opacity < 1 ? opacity.toFixed(2) : "";
   }
 
   private caretIn(caret: CaretPosition, box: { left: number; top: number; right: number; bottom: number }) {
