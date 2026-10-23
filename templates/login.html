@@ -17,6 +17,8 @@
     }
     a.button:hover, button.button:hover { background: #f0f0f0; }
     button.dev { border-style: dashed; color: #555; }
+    .dev-other { display: flex; gap: 8px; }
+    .dev-other input { padding: 9px 12px; border: 1px solid #ccc; border-radius: 6px; font: inherit; font-size: 15px; }
     .error { color: #b00020; font-size: 14px; }
   </style>
 </head>
@@ -26,6 +28,10 @@
   {% if dev_email %}
   <form method="post" action="{{ url_for('auth.dev_login') }}">
     <button class="button dev" type="submit">Dev sign-in as {{ dev_email }}</button>
+  </form>
+  <form class="dev-other" method="post" action="{{ url_for('auth.dev_login') }}">
+    <input name="email" type="email" placeholder="someone@pinewood.edu" required aria-label="Dev email">
+    <button class="button dev" type="submit">Dev sign-in</button>
   </form>
   {% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}

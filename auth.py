@@ -160,8 +160,14 @@ def dev_login():
     email = dev_login_email()
     if not email:
         abort(404)
+    chosen = (request.form.get("email") or request.args.get("email") or "").strip().lower()
+    if chosen:
+        local, _, domain = chosen.partition("@")
+        if domain != ALLOWED_DOMAIN or not local:
+            abort(400)
+        email = chosen
     sign_in(dev_user(email))
-    return redirect("/")
+    return redirect(safe_next(request.args.get("next")) or "/")
 
 
 @auth_bp.post("/logout")

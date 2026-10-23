@@ -273,6 +273,11 @@ def test_dev_login_only_in_debug(app, monkeypatch):
         assert res.status_code == 302 and res.headers["Location"] == "/"
         assert client.get("/").headers["Location"] == "/welcome?next=/"
         assert client.get("/login").headers["Location"] == "/"
+        other = app.test_client()
+        assert other.post("/auth/dev-login", data={"email": "eve@gmail.com"}, headers={"Origin": ORIGIN}).status_code == 400
+        res = other.post("/auth/dev-login", data={"email": "Second@Pinewood.edu"}, headers={"Origin": ORIGIN})
+        assert res.status_code == 302
+        assert other.get("/api/me").get_json()["email"] == "second@pinewood.edu"
     finally:
         app.debug = False
 

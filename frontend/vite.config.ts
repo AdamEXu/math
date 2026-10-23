@@ -9,6 +9,9 @@ export default defineConfig({
   server: {
     port: Number(process.env.PORT ?? 5173),
     strictPort: true,
-    proxy: Object.fromEntries(SERVER_PATHS.map((path) => [path, { target: FLASK }])),
+    proxy: {
+      ...Object.fromEntries(SERVER_PATHS.map((path) => [path, { target: FLASK }])),
+      "/ws": { target: FLASK, ws: true },
+    },
   },
 });
