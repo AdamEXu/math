@@ -35,14 +35,5 @@ body { background: #f5f5f5; }
 .handle-status[data-state="ok"] .when-ok, .handle-status[data-state="error"] .when-error { display: inline-block; }
 
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 24px; }
-.btn-primary, .btn-secondary {
-  height: 36px; padding: 0 18px; border-radius: 4px; font-size: 15px; cursor: pointer; text-decoration: none;
-  display: inline-flex; align-items: center;
-}
-.btn-primary { border: 1px solid transparent; background: var(--blue); color: #fff; }
-.btn-primary:hover { background: #2563c4; }
-.btn-primary:disabled { background: #9db9e8; cursor: default; }
-.btn-secondary { border: 1px solid #ccc; background: #fff; color: #333; }
-.btn-secondary:hover { background: #f4f4f4; }
 .saved-note { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; color: #2f8a4e; font-size: 14px; }
 .saved-note svg { width: 16px; height: 16px; }

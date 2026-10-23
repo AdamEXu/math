@@ -2,6 +2,7 @@ import os
 import sqlite3
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from flask import current_app, g
@@ -47,6 +48,26 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     state BLOB NOT NULL,
     PRIMARY KEY (graph_id, seq)
 );
+
+CREATE TABLE IF NOT EXISTS folders (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES users (id),
+    parent_id TEXT REFERENCES folders (id),
+    name TEXT NOT NULL,
+    icon TEXT NOT NULL,
+    color TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS folders_owner_position ON folders (owner_id, position);
+
+CREATE TABLE IF NOT EXISTS graph_placements (
+    user_id TEXT NOT NULL REFERENCES users (id),
+    graph_id TEXT NOT NULL REFERENCES graphs (id),
+    folder_id TEXT NOT NULL REFERENCES folders (id),
+    PRIMARY KEY (user_id, graph_id)
+);
+CREATE INDEX IF NOT EXISTS graph_placements_folder ON graph_placements (folder_id);
 
 CREATE TABLE IF NOT EXISTS thumbnails (
     graph_id TEXT PRIMARY KEY REFERENCES graphs (id),
@@ -122,3 +143,14 @@ def close_db(_exc=None):
     conn = g.pop("db", None)
     if conn is not None:
         conn.close()
+
+
+@contextmanager
+def write_transaction(db):
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        yield
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    db.execute("COMMIT")

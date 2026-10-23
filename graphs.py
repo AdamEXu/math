@@ -4,13 +4,13 @@ import hashlib
 import os
 import re
 import uuid
-from contextlib import contextmanager
 
 from flask import Blueprint, Response, abort, g, redirect, render_template, request, url_for
 from pycrdt import Doc, Map, Text, merge_updates
 
 from auth import fetch_only, login_required, same_origin
-from db import INIT_HOOKS, get_db, now_ms, uuid7
+from db import INIT_HOOKS, get_db, now_ms, uuid7, write_transaction
+from folders import FOLDER_COLORS, FOLDER_ICONS, folder_json, owned_folder, place_graph, user_folders
 
 CHECKPOINT_EVERY = 200
 MAX_UPDATES_PER_REQUEST = 500
@@ -26,17 +26,6 @@ DEFAULT_TITLE_RE = re.compile(r"Untitled Graph(?: \((\d+)\))?")
 EMPTY_UPDATE = Doc().get_update()
 
 graphs_bp = Blueprint("graphs", __name__)
-
-
-@contextmanager
-def write_transaction(db):
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        yield
-    except BaseException:
-        db.execute("ROLLBACK")
-        raise
-    db.execute("COMMIT")
 
 
 def owned_graph(graph_id):
@@ -149,21 +138,44 @@ def parse_updates(payload):
     return parsed
 
 
+def render_library(view):
+    rows = get_db().execute(
+        "SELECT graphs.id, graphs.title, graphs.updated_at, graphs.thumbnail_at, graph_placements.folder_id"
+        " FROM graphs LEFT JOIN graph_placements"
+        " ON graph_placements.graph_id = graphs.id AND graph_placements.user_id = graphs.owner_id"
+        " WHERE graphs.owner_id = ? AND graphs.deleted_at IS NULL ORDER BY graphs.updated_at DESC",
+        (g.user["id"],),
+    ).fetchall()
+    folders = [folder_json(row) for row in user_folders(g.user["id"])]
+    return render_template(
+        "library.html", graphs=rows, folders=folders, view=view, folder_icons=FOLDER_ICONS, folder_colors=FOLDER_COLORS
+    )
+
+
 @graphs_bp.get("/")
 @login_required
 def library():
-    rows = get_db().execute(
-        "SELECT id, title, updated_at, thumbnail_at FROM graphs"
-        " WHERE owner_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC",
-        (g.user["id"],),
-    ).fetchall()
-    return render_template("library.html", graphs=rows)
+    return render_library("all")
+
+
+@graphs_bp.get("/folders/<folder_id>")
+@login_required
+def folder(folder_id):
+    return render_library(owned_folder(folder_id)["id"])
+
+
+@graphs_bp.get("/shared")
+@login_required
+def shared():
+    return render_library("shared")
 
 
 @graphs_bp.post("/graphs")
 @login_required
 @same_origin
 def create():
+    folder_id = request.form.get("folder_id")
+    folder_id = owned_folder(folder_id)["id"] if folder_id else None
     graph_id = uuid7()
     now = now_ms()
     db = get_db()
@@ -174,6 +186,8 @@ def create():
             (graph_id, g.user["id"], title, now, now),
         )
         append_server_update(db, graph_id, g.user["id"], title_update(EMPTY_UPDATE, title), now)
+        if folder_id:
+            place_graph(db, g.user["id"], graph_id, folder_id)
     return redirect(url_for("graphs.calculator", graph_id=graph_id))
 
 
@@ -186,6 +200,22 @@ def delete(graph_id):
     with write_transaction(db):
         db.execute("UPDATE graphs SET deleted_at = ? WHERE id = ?", (now_ms(), graph_id))
     return redirect(url_for("graphs.library"))
+
+
+@graphs_bp.post("/graphs/<graph_id>/folder")
+@login_required
+@fetch_only
+def move(graph_id):
+    graph_id = owned_graph(graph_id)["id"]
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or "folder_id" not in payload:
+        abort(400)
+    folder_id = payload["folder_id"]
+    folder_id = owned_folder(folder_id)["id"] if folder_id is not None else None
+    db = get_db()
+    with write_transaction(db):
+        place_graph(db, g.user["id"], graph_id, folder_id)
+    return {"folder_id": folder_id}
 
 
 @graphs_bp.get("/calculator/<graph_id>")

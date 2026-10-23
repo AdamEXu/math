@@ -1,16 +1,27 @@
 import {
-  ChartSpline, CircleAlert, CircleCheck, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, House,
-  LoaderCircle, LogOut, Settings, Trash2, createIcons,
+  Atom, Book, Bookmark, Calculator, Cat, ChartLine, ChartSpline, Check, ChevronRight, CircleAlert,
+  CircleCheck, CloudCheck, CloudOff, Code, Dog, EllipsisVertical, ExternalLink, Flag, Flame, FlaskConical,
+  Folder, FolderInput, FolderMinus, FolderPlus, Gamepad2, Globe, GraduationCap, Heart, House, Leaf,
+  Lightbulb, LoaderCircle, LogOut, Moon, Music, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Pi, Rocket,
+  Settings, Shapes, Sigma, SquareFunction, Star, Sun, Trash2, Users, Zap,
+  createIcons,
 } from "lucide";
 
-createIcons({
-  icons: {
-    ChartSpline, CircleAlert, CircleCheck, CloudCheck, CloudOff, EllipsisVertical, ExternalLink, House,
-    LoaderCircle, LogOut, Settings, Trash2,
-  },
-});
+const ICONS = {
+  Atom, Book, Bookmark, Calculator, Cat, ChartLine, ChartSpline, Check, ChevronRight, CircleAlert,
+  CircleCheck, CloudCheck, CloudOff, Code, Dog, EllipsisVertical, ExternalLink, Flag, Flame, FlaskConical,
+  Folder, FolderInput, FolderMinus, FolderPlus, Gamepad2, Globe, GraduationCap, Heart, House, Leaf,
+  Lightbulb, LoaderCircle, LogOut, Moon, Music, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Pi, Rocket,
+  Settings, Shapes, Sigma, SquareFunction, Star, Sun, Trash2, Users, Zap,
+};
 
-function closeMenus(except) {
+export function renderIcons() {
+  createIcons({ icons: ICONS });
+}
+
+renderIcons();
+
+export function closeMenus(except) {
   for (const button of document.querySelectorAll('.dropdown > [aria-expanded="true"]')) {
     if (button === except) continue;
     button.setAttribute("aria-expanded", "false");

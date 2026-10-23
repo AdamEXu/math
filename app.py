@@ -7,6 +7,7 @@ from flask import Flask, g, redirect, render_template, request, session, url_for
 from account import account_bp
 from auth import auth_bp, dev_login_email
 from db import close_db
+from folders import folders_bp
 from graphs import MAX_IMAGE_BYTES, graphs_bp
 from users import avatar_hue, avatar_initial, avatar_url
 
@@ -23,6 +24,7 @@ app.config.update(
 app.register_blueprint(auth_bp)
 app.register_blueprint(graphs_bp)
 app.register_blueprint(account_bp)
+app.register_blueprint(folders_bp)
 app.teardown_appcontext(close_db)
 
 LOGIN_ERRORS = {

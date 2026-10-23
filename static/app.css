@@ -75,3 +75,13 @@ a.menu-user:hover { background: #f5f5f5; }
 .menu-item svg { width: 17px; height: 17px; color: #666; }
 .menu-item:hover, .menu-item:focus-visible { background: #f2f2f2; outline: 0; }
 .menu-item.danger, .menu-item.danger svg { color: #c33; }
+
+.btn-primary, .btn-secondary {
+  height: 36px; padding: 0 18px; border-radius: 4px; font-size: 15px; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center;
+}
+.btn-primary { border: 1px solid transparent; background: var(--blue); color: #fff; }
+.btn-primary:hover { background: #2563c4; }
+.btn-primary:disabled { background: #9db9e8; cursor: default; }
+.btn-secondary { border: 1px solid #ccc; background: #fff; color: #333; }
+.btn-secondary:hover { background: #f4f4f4; }
