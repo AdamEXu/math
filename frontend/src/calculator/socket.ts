@@ -15,7 +15,6 @@ const CLOSE_FORBIDDEN = 4403;
 const CLOSE_NOT_FOUND = 4404;
 const MAX_BACKOFF_MS = 10000;
 const PING_MS = 15000;
-const DEAD_MS = 35000;
 const OFFLINE_GRACE_MS = 2000;
 
 export type ConnectionStatus = "connecting" | "online" | "offline";
@@ -44,7 +43,7 @@ export class GraphSocket {
   private disposed = false;
   private idleWaiters: (() => void)[] = [];
   private heartbeat: number | null = null;
-  private lastHeard = 0;
+  private awaitingPong = false;
   private offlineTimer: number | null = null;
 
   constructor(
@@ -82,7 +81,7 @@ export class GraphSocket {
     this.ws = ws;
     ws.onopen = () => {
       this.attempts = 0;
-      this.lastHeard = Date.now();
+      this.awaitingPong = false;
       this.heartbeat = window.setInterval(() => this.beat(ws), PING_MS);
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, MESSAGE_SYNC);
@@ -91,7 +90,7 @@ export class GraphSocket {
       this.sendAwareness([this.doc.clientID]);
     };
     ws.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-      this.lastHeard = Date.now();
+      this.awaitingPong = false;
       this.receive(new Uint8Array(event.data));
     };
     ws.onclose = (event) => this.closed(ws, event.code);
@@ -124,17 +123,19 @@ export class GraphSocket {
   }
 
   private beat(ws: WebSocket) {
-    if (Date.now() - this.lastHeard > DEAD_MS) {
+    if (this.awaitingPong) {
       ws.close();
       this.closed(ws, 1006);
       return;
     }
-    if (ws.readyState === WebSocket.OPEN) ws.send(new Uint8Array([MESSAGE_PING]));
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(new Uint8Array([MESSAGE_PING]));
+    this.awaitingPong = true;
   }
 
   private readonly onVisibility = () => {
     if (document.visibilityState !== "visible") return;
-    if (this.ws && Date.now() - this.lastHeard > PING_MS * 2) this.beat(this.ws);
+    if (this.ws?.readyState === WebSocket.OPEN && !this.awaitingPong) this.beat(this.ws);
     this.reconnectNow();
   };
 

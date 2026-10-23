@@ -33,7 +33,7 @@ CLOSE_IDLE = 4000
 MAX_QUEUED = 2000
 MAX_AWARENESS_BYTES = 16 << 10
 MAX_WATCHED = 2000
-IDLE_TIMEOUT = 45
+IDLE_TIMEOUT = 90
 
 log = logging.getLogger(__name__)
 _rooms = {}
