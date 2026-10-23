@@ -489,3 +489,29 @@ def test_reconnecting_tab_reclaims_its_awareness_from_a_stale_socket(server, app
     assert json.loads(realtime.live_room(graph_id).awareness[11][1])["selected"] == "still mine"
     fresh.close()
     watcher.close()
+
+
+def test_rename_endpoint_applies_through_live_room(server, app, alice, bob, graph_id):
+    share(alice, graph_id, "bob", "editor")
+    a = Peer(server, app, graph_id, alice.user_id)
+    a.handshake("owner")
+    res = bob.put(f"/api/graphs/{graph_id}/title", json={"title": "Renamed"}, headers=FETCH)
+    assert res.status_code == 200 and res.get_json()["title"] == "Renamed"
+    a.receive_update()
+    assert a.title() == "Renamed"
+    assert str(realtime.live_room(graph_id).graph_doc.doc.get("meta", type=Map)["title"]) == "Renamed"
+    assert rows(app, "SELECT author_id FROM updates WHERE graph_id = ? ORDER BY seq DESC LIMIT 1", graph_id) == [
+        (bob.user_id,)
+    ]
+    assert rows(app, "SELECT title FROM graphs WHERE id = ?", graph_id) == [("Renamed",)]
+    a.close()
+
+
+def test_rename_endpoint_without_live_room_appends_to_log(server, app, alice, graph_id):
+    assert realtime.live_room(graph_id) is None
+    assert alice.put(f"/api/graphs/{graph_id}/title", json={"title": "Offline"}, headers=FETCH).status_code == 200
+    assert realtime.live_room(graph_id) is None
+    a = Peer(server, app, graph_id, alice.user_id)
+    a.handshake("owner")
+    assert a.title() == "Offline"
+    a.close()

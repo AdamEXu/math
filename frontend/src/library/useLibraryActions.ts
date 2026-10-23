@@ -22,6 +22,11 @@ export function useLibraryActions() {
   const setGraphFolder = (graphId: string, folderId: string | null) =>
     updateGraphs(client, (graphs) => graphs.map((g) => (g.id === graphId ? { ...g, folder_id: folderId } : g)));
 
+  const patchGraph = (graphId: string, changes: Partial<Graph>) => {
+    updateGraphs(client, (graphs) => graphs.map((g) => (g.id === graphId ? { ...g, ...changes } : g)));
+    client.setQueryData<Graph>(keys.graph(graphId), (graph) => (graph ? { ...graph, ...changes } : graph));
+  };
+
   const replaceFolder = (folder: Folder) =>
     updateFolders(client, (folders) => folders.map((f) => (f.id === folder.id ? folder : f)));
 
@@ -57,6 +62,19 @@ export function useLibraryActions() {
       }
       updateGraphs(client, (graphs) => graphs.filter((g) => g.id !== graph.id));
       client.removeQueries({ queryKey: keys.graph(graph.id) });
+    },
+
+    async renameGraph(graph: Graph, title: string) {
+      const previous = { title: graph.title, updated_at: graph.updated_at };
+      if (title === graph.title) return;
+      patchGraph(graph.id, { title });
+      try {
+        const saved = await graphApi.renameGraph(graph.id, title);
+        patchGraph(graph.id, { title: saved.title, updated_at: saved.updated_at });
+      } catch (error) {
+        patchGraph(graph.id, previous);
+        failed(error);
+      }
     },
 
     async moveGraph(graph: Graph, folderId: string | null) {

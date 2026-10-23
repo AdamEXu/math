@@ -16,6 +16,9 @@ export const deleteGraph = (id: string) => api<{ ok: true }>(`/api/graphs/${id}`
 export const moveGraph = (id: string, folderId: string | null) =>
   api<{ folder_id: string | null }>(`/api/graphs/${id}/folder`, { method: "PUT", json: { folder_id: folderId } });
 
+export const renameGraph = (id: string, title: string) =>
+  api<Graph>(`/api/graphs/${id}/title`, { method: "PUT", json: { title } });
+
 export const fetchDoc = (id: string) => apiBytes(`/api/graphs/${id}/doc`);
 
 export async function uploadThumbnail(id: string, png: Blob) {

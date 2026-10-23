@@ -6,6 +6,7 @@ import {
   FolderInput,
   FolderMinus,
   LogOut,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import { type MouseEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -24,6 +25,7 @@ type GraphCardProps = {
   graph: Graph;
   folders: Folder[];
   presence: PublicUser[];
+  onRename: (title: string) => void;
   onMove: (folderId: string | null) => void;
   onDelete: () => void;
   onLeave: () => void;
@@ -98,11 +100,52 @@ function MoveSubmenu({ graph, folders, onMove }: Pick<GraphCardProps, "graph" | 
   );
 }
 
+const MAX_TITLE = 200;
+
+function TitleEditor({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const finished = useRef(false);
+
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+
+  const finish = (value: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    onDone(value);
+  };
+
+  return (
+    <input
+      ref={ref}
+      className="card-title card-title-input"
+      type="text"
+      defaultValue={title}
+      maxLength={MAX_TITLE}
+      autoComplete="off"
+      spellCheck={false}
+      aria-label="Graph title"
+      onBlur={(event) => finish(event.currentTarget.value.trim() || null)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") finish(event.currentTarget.value.trim() || null);
+        else if (event.key === "Escape") finish(null);
+        else return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    />
+  );
+}
+
 export function GraphCard(props: GraphCardProps) {
-  const { graph, folders, presence, onMove, onDelete, onLeave, onDragStart, onDragEnd } = props;
+  const { graph, folders, presence, onRename, onMove, onDelete, onLeave, onDragStart, onDragEnd } = props;
   const { open, toggleProps } = useDropdown();
   const { tipProps, tip } = useHoverTip();
   const owned = graph.role === "owner";
+  const canRename = graph.role !== "viewer";
+  const [renaming, setRenaming] = useState(false);
   const [submenuOpen, setSubmenuOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const title = displayTitle(graph);
@@ -135,7 +178,7 @@ export function GraphCard(props: GraphCardProps) {
       data-id={graph.id}
       data-folder={graph.folder_id ?? ""}
       data-title={title.toLowerCase()}
-      draggable
+      draggable={!renaming}
       onDragStart={(event) => {
         closeMenus();
         event.dataTransfer.effectAllowed = "move";
@@ -154,9 +197,19 @@ export function GraphCard(props: GraphCardProps) {
             <Avatar user={graph.owner} size={20} />
           </span>
         )}
-        <Link className={`card-title${graph.title ? "" : " untitled"}`} to={href} title={title} draggable={false}>
-          {title}
-        </Link>
+        {renaming ? (
+          <TitleEditor
+            title={title}
+            onDone={(next) => {
+              setRenaming(false);
+              if (next && next !== title) onRename(next);
+            }}
+          />
+        ) : (
+          <Link className={`card-title${graph.title ? "" : " untitled"}`} to={href} title={title} draggable={false}>
+            {title}
+          </Link>
+        )}
         <div className="dropdown">
           <button
             className="kebab"
@@ -171,6 +224,12 @@ export function GraphCard(props: GraphCardProps) {
             <EllipsisVertical />
           </button>
           <div className="menu menu-right" role="menu" hidden={!open}>
+            {canRename && (
+              <button className="menu-item" type="button" role="menuitem" onClick={() => setRenaming(true)}>
+                <Pencil />
+                Rename
+              </button>
+            )}
             <a className="menu-item" role="menuitem" href={href} target="_blank">
               <ExternalLink />
               Open in new tab

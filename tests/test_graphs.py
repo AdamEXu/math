@@ -102,6 +102,7 @@ def test_create_rejects_non_object_body(app, alice, body):
         ("get", "/api/graphs/{id}/doc"),
         ("delete", "/api/graphs/{id}"),
         ("put", "/api/graphs/{id}/folder"),
+        ("put", "/api/graphs/{id}/title"),
         ("post", "/api/graphs/{id}/thumbnail"),
         ("post", "/api/graphs/{id}/updates"),
         ("post", "/graphs/{id}/updates"),

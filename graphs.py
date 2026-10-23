@@ -17,6 +17,7 @@ from docstore import (
     MAX_TITLE,
     GraphDoc,
     append_server_update,
+    doc_title,
     graph_lock,
     imported_update,
     load_state,
@@ -239,6 +240,37 @@ def move(graph_id):
     with write_transaction(db):
         place_graph(db, g.user["id"], graph_id, folder_id)
     return {"folder_id": folder_id}
+
+
+@graphs_bp.put("/graphs/<graph_id>/title")
+@login_required
+def rename(graph_id):
+    graph_id = accessible_graph(graph_id, "editor")[0]["id"]
+    payload = request.get_json(silent=True)
+    title = payload.get("title") if isinstance(payload, dict) else None
+    if not isinstance(title, str):
+        abort(400)
+    title = title.strip()
+    if not title:
+        abort(400, "Title can't be empty.")
+    if len(title) > MAX_TITLE:
+        abort(400, f"Titles can be at most {MAX_TITLE} characters.")
+    db = get_db()
+    delta = None
+    with graph_lock(graph_id):
+        room = realtime.live_room(graph_id)
+        graph_doc = room.graph_doc if room else GraphDoc(db, graph_id)
+        if doc_title(graph_doc.doc) != title:
+            try:
+                update = title_update(graph_doc.doc.get_update(), title)
+                delta = graph_doc.apply_live(db, update, g.user["id"], now_ms())
+            except BaseException:
+                if room:
+                    realtime.discard(room)
+                raise
+    if room and delta is not None:
+        room.broadcast_updates([delta])
+    return graph_by_id(graph_id)
 
 
 @graphs_bp.get("/graphs/<graph_id>/doc")

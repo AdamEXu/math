@@ -95,6 +95,10 @@ body.library-page { background: #fff; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .card-title.untitled { color: var(--muted); }
+.card-title-input {
+  height: 26px; margin: 0 4px 0 -4px; padding: 0 3px; border: 1px solid var(--blue); border-radius: 3px;
+  background: #fff; font-family: inherit; line-height: 24px; outline: 0;
+}
 .card-title:hover { text-decoration: underline; }
 .kebab {
   width: 24px; height: 26px; margin-right: -4px; display: inline-flex; align-items: center; justify-content: center;

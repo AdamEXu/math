@@ -167,6 +167,7 @@ function Library({ graphs, folders, view }: { graphs: Graph[]; folders: Folder[]
                 graph={graph}
                 folders={folders}
                 presence={presence[graph.id] ?? NO_ONE}
+                onRename={(title) => void actions.renameGraph(graph, title)}
                 onMove={(folderId) => void actions.moveGraph(graph, folderId)}
                 onDelete={() => void actions.deleteGraph(graph)}
                 onLeave={() => void actions.leaveGraph(graph)}

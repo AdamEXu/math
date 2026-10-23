@@ -1,5 +1,6 @@
 import sqlite3
 
+import pytest
 from pycrdt import Map
 
 import db as db_module
@@ -83,3 +84,61 @@ def test_backfill_handles_graph_without_title_in_doc(app):
     with app.app_context():
         db_module.get_db()
     assert str(load_doc(client, graph_id).get("meta", type=Map)["title"]) == "Untitled Graph"
+
+
+def put_title(client, graph_id, value, headers=FETCH):
+    return client.put(f"/api/graphs/{graph_id}/title", json={"title": value}, headers=headers)
+
+
+def share(owner, graph_id, handle, role):
+    res = owner.post(f"/api/graphs/{graph_id}/members", json={"user": handle, "role": role}, headers=FETCH)
+    assert res.status_code == 200
+
+
+def test_rename_endpoint_logs_a_doc_update(app, alice):
+    graph_id = create(alice)
+    before = rows(app, "SELECT updated_at FROM graphs WHERE id = ?", graph_id)[0][0]
+    res = put_title(alice, graph_id, "  Parabola  ")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["title"] == "Parabola" and body["updated_at"] >= before
+    assert title(app, graph_id) == "Parabola"
+    assert str(load_doc(alice, graph_id).get("meta", type=Map)["title"]) == "Parabola"
+    assert rows(app, "SELECT author_id FROM updates WHERE graph_id = ? ORDER BY seq DESC LIMIT 1", graph_id) == [
+        (alice.user_id,)
+    ]
+    assert [g["title"] for g in graph_list(alice)] == ["Parabola"]
+
+
+def test_rename_to_same_title_appends_nothing(app, alice):
+    graph_id = create(alice)
+    count = rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id)
+    assert put_title(alice, graph_id, "Untitled Graph").status_code == 200
+    assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == count
+
+
+@pytest.mark.parametrize("payload", [{"title": ""}, {"title": "   "}, {"title": 5}, {}, ["x"], {"title": "x" * 201}])
+def test_rename_rejects_empty_and_too_long(app, alice, payload):
+    graph_id = create(alice)
+    res = alice.put(f"/api/graphs/{graph_id}/title", json=payload, headers=FETCH)
+    assert res.status_code == 400
+    assert title(app, graph_id) == "Untitled Graph"
+
+
+def test_rename_accepts_max_length(app, alice):
+    graph_id = create(alice)
+    assert put_title(alice, graph_id, "x" * 200).status_code == 200
+    assert title(app, graph_id) == "x" * 200
+
+
+def test_rename_permissions(app, alice, bob):
+    carol = signed_in(app, "carol@pinewood.edu", "carol")
+    graph_id = create(alice)
+    assert put_title(bob, graph_id, "Nope").status_code == 404
+    share(alice, graph_id, "bob", "viewer")
+    assert put_title(bob, graph_id, "Nope").status_code == 403
+    share(alice, graph_id, "carol", "editor")
+    assert put_title(carol, graph_id, "By Carol").status_code == 200
+    assert title(app, graph_id) == "By Carol"
+    assert put_title(alice, graph_id, "Fetchless", headers={}).status_code == 403
+    assert title(app, graph_id) == "By Carol"
