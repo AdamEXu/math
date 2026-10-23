@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router";
 import { useMe } from "./api/queries";
 import type { Me } from "./api/types";
@@ -21,8 +22,21 @@ function RequireHandle({ me }: { me: Me }) {
   return <Outlet />;
 }
 
+function useSingleAccountAcrossTabs(userId: string | undefined) {
+  useEffect(() => {
+    if (!userId) return;
+    const channel = new BroadcastChannel("math-account");
+    channel.onmessage = (event: MessageEvent<unknown>) => {
+      if (event.data !== userId) location.reload();
+    };
+    channel.postMessage(userId);
+    return () => channel.close();
+  }, [userId]);
+}
+
 export function App() {
   const me = useMe();
+  useSingleAccountAcrossTabs(me.data?.id);
   const location = useLocation();
   if (!me.data) return null;
 
