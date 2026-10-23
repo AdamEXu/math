@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 SPEC.md
 .env
+data/

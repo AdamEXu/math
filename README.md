@@ -12,3 +12,6 @@ uv run flask --app app run --debug --port 5050
 ```
 
 Google sign-in needs `http://localhost:5050/auth/google/callback` registered as a redirect URI on the OAuth client.
+To skip Google locally, set `DEV_LOGIN_EMAIL` in `.env`: the login page then shows a "Dev sign-in" button. It only works when Flask runs in debug mode with a localhost `BASE_URL`.
+
+Graphs are stored in SQLite at `$DATA_DIR/math.db` (default `./data`). Run the tests with `uv run pytest`.

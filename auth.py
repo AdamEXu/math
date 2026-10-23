@@ -2,10 +2,10 @@ import hmac
 import os
 import secrets
 from functools import wraps
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
-from flask import Blueprint, redirect, request, session, url_for
+from flask import Blueprint, abort, current_app, redirect, request, session, url_for
 
 ALLOWED_DOMAIN = "pinewood.edu"
 GOOGLE_TIMEOUT = (3.05, 15)
@@ -17,14 +17,47 @@ def _redirect_uri():
     return f"{os.environ['BASE_URL'].rstrip('/')}/auth/google/callback"
 
 
+def _base_origin():
+    base = urlsplit(os.environ["BASE_URL"])
+    return f"{base.scheme}://{base.netloc}"
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if "email" not in session:
+            if request.headers.get("X-Requested-With"):
+                return {"error": "signed_out"}, 401
             return redirect(url_for("login"))
         return view(*args, **kwargs)
 
     return wrapped
+
+
+def same_origin(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if request.headers.get("Origin") != _base_origin():
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def fetch_only(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if request.headers.get("X-Requested-With") != "fetch":
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def dev_login_email():
+    email = os.environ.get("DEV_LOGIN_EMAIL")
+    local = urlsplit(os.environ["BASE_URL"]).hostname in ("localhost", "127.0.0.1")
+    return email if current_app.debug and local and email else None
 
 
 @auth_bp.get("/google")
@@ -87,10 +120,24 @@ def google_callback():
     session.permanent = True
     session["email"] = user["email"]
     session["name"] = user.get("name", user["email"])
-    return redirect(url_for("index"))
+    return redirect(url_for("graphs.library"))
+
+
+@auth_bp.post("/dev-login")
+@same_origin
+def dev_login():
+    email = dev_login_email()
+    if not email:
+        abort(404)
+    session.clear()
+    session.permanent = True
+    session["email"] = email
+    session["name"] = email.split("@")[0].split(".")[0].capitalize()
+    return redirect(url_for("graphs.library"))
 
 
 @auth_bp.post("/logout")
+@same_origin
 def logout():
     session.clear()
     return redirect(url_for("login"))
