@@ -16,9 +16,6 @@ body.calculator-page { display: flex; flex-direction: column; overflow: hidden; 
 .save-status svg { width: 15px; height: 15px; }
 
 
-@media (max-width: 900px) {
-  .calculator-page .wordmark { display: none; }
-}
 @media (max-width: 600px) {
   .title-input { max-width: 30vw; }
   .save-status { font-size: 0; padding: 0 8px; gap: 0; }

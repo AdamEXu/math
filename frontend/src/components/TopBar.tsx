@@ -21,9 +21,6 @@ export function TopBar({ title, status, onHome }: TopBarProps) {
         <div className="tb-title-block">{title}</div>
         {status}
       </div>
-      <Link className="wordmark" to="/">
-        math
-      </Link>
       <div className="topbar-right">{user && <UserMenu user={user} />}</div>
     </header>
   );
