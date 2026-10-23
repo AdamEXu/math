@@ -216,7 +216,7 @@ function Calculator({ graphId, meId, role, initialTitle, onRole, onRevoked }: Ca
         }
       />
       <div id="calculator" ref={containerRef} />
-      {session && <LiveCursors session={session} meId={meId} />}
+      {session && <LiveCursors session={session} />}
       {sharing && (
         <ShareDialog
           graphId={graphId}

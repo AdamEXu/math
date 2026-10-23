@@ -12,12 +12,12 @@ type Remote = RemoteCursor & { user: PresenceUser };
 const NO_ONE: Remote[] = [];
 const LEAVE_MS = 120;
 
-function readRemotes(session: GraphSession, meId: string): Remote[] {
+function readRemotes(session: GraphSession): Remote[] {
   const awareness = session.socket.awareness;
   const remotes: Remote[] = [];
   for (const [clientId, state] of awareness.getStates() as Map<number, PresenceState>) {
     const user = state.user;
-    if (clientId === awareness.clientID || !user || user.id === meId) continue;
+    if (clientId === awareness.clientID || !user) continue;
     const cursor = isAnchor(state.cursor) ? state.cursor : null;
     const editing = typeof state.editing === "string" ? state.editing : null;
     const caret = isCaret(state.caret) ? state.caret : null;
@@ -26,7 +26,7 @@ function readRemotes(session: GraphSession, meId: string): Remote[] {
   return remotes.length ? remotes : NO_ONE;
 }
 
-function useRemotes(session: GraphSession, meId: string) {
+function useRemotes(session: GraphSession) {
   const cache = useRef<{ key: string; remotes: Remote[] }>({ key: "", remotes: NO_ONE });
   return useSyncExternalStore(
     (notify) => {
@@ -35,7 +35,7 @@ function useRemotes(session: GraphSession, meId: string) {
       return () => awareness.off("change", notify);
     },
     () => {
-      const remotes = readRemotes(session, meId);
+      const remotes = readRemotes(session);
       const key = JSON.stringify(remotes);
       if (key !== cache.current.key) cache.current = { key, remotes };
       return cache.current.remotes;
@@ -66,8 +66,8 @@ function useLeavers(remotes: Remote[]) {
   return useMemo(() => (leaving.length ? [...remotes, ...leaving] : remotes), [remotes, leaving]);
 }
 
-export function LiveCursors({ session, meId }: { session: GraphSession; meId: string }) {
-  const remotes = useLeavers(useRemotes(session, meId));
+export function LiveCursors({ session }: { session: GraphSession }) {
+  const remotes = useLeavers(useRemotes(session));
   const [motion, setMotion] = useState<CursorMotion | null>(null);
   useEffect(() => {
     const created = new CursorMotion(session.container, session.calc);
