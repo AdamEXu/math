@@ -7,7 +7,7 @@ import pytest
 from pycrdt import Doc, Map, Text
 
 import graphs
-from tests.conftest import FETCH, ORIGIN
+from tests.conftest import FETCH, ORIGIN, new_graph
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
@@ -16,16 +16,16 @@ def b64(data):
     return base64.b64encode(data).decode()
 
 
-def post_updates(client, graph_id, updates, headers=FETCH):
+def post_updates(client, graph_id, updates, headers=FETCH, prefix="/api"):
     payload = {"updates": [{"id": uid, "ts": 1, "data": b64(data)} for uid, data in updates]}
-    return client.post(f"/graphs/{graph_id}/updates", json=payload, headers=headers)
+    return client.post(f"{prefix}/graphs/{graph_id}/updates", json=payload, headers=headers)
 
 
 class Writer:
     def __init__(self, client=None, graph_id=None):
         self.doc = Doc()
         if client is not None:
-            self.doc.apply_update(client.get(f"/graphs/{graph_id}/doc").data)
+            self.doc.apply_update(client.get(f"/api/graphs/{graph_id}/doc").data)
         self.meta = self.doc.get("meta", type=Map)
 
     def edit(self, fn):
@@ -44,59 +44,89 @@ def rows(app, sql, *args):
 
 
 def load_doc(client, graph_id):
-    res = client.get(f"/graphs/{graph_id}/doc")
+    res = client.get(f"/api/graphs/{graph_id}/doc")
     assert res.status_code == 200
+    assert res.mimetype == "application/octet-stream" and res.headers["Cache-Control"] == "no-store"
     doc = Doc()
     doc.apply_update(res.data)
     return doc
+
+
+def graph_list(client):
+    res = client.get("/api/graphs")
+    assert res.status_code == 200
+    return res.get_json()["graphs"]
 
 
 def test_health_is_public(app):
     assert app.test_client().get("/health").get_json() == {"status": "ok"}
 
 
-def test_library_requires_login(app):
-    res = app.test_client().get("/")
-    assert res.status_code == 302 and res.headers["Location"].endswith("/login")
-
-
 def test_api_requires_login_with_401(app, graph_id):
-    res = post_updates(app.test_client(), graph_id, [])
-    assert res.status_code == 401
+    client = app.test_client()
+    assert post_updates(client, graph_id, []).status_code == 401
+    res = client.get("/api/graphs")
+    assert res.status_code == 401 and res.get_json() == {"error": "signed_out"}
 
 
-def test_new_graph_redirects_to_calculator_with_uuid7(alice, graph_id):
+def test_new_graph_is_uuid7_with_graph_json(alice, graph_id):
     assert uuid.UUID(graph_id).version == 7
-    assert alice.get(f"/calculator/{graph_id}").status_code == 200
+    res = alice.get(f"/api/graphs/{graph_id}")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert set(body) == {"id", "title", "updated_at", "thumbnail_at", "folder_id"}
+    assert body["id"] == graph_id and body["title"] == "Untitled Graph"
+    assert body["thumbnail_at"] is None and body["folder_id"] is None and isinstance(body["updated_at"], int)
+
+
+def test_create_returns_201_graph_json(alice):
+    res = alice.post("/api/graphs", headers=FETCH)
+    assert res.status_code == 201
+    assert res.get_json() == alice.get(f"/api/graphs/{res.get_json()['id']}").get_json()
+
+
+@pytest.mark.parametrize("body", ["[]", "null", "nope"])
+def test_create_rejects_non_object_body(app, alice, body):
+    res = alice.post("/api/graphs", data=body, content_type="application/json", headers=FETCH)
+    assert res.status_code == 400 and res.get_json() == {"error": "Bad request."}
+    assert rows(app, "SELECT COUNT(*) FROM graphs") == [(0,)]
 
 
 @pytest.mark.parametrize(
     "method,path",
     [
-        ("get", "/calculator/{id}"),
-        ("get", "/graphs/{id}/doc"),
-        ("get", "/graphs/{id}/thumbnail.png"),
-        ("post", "/graphs/{id}/thumbnail"),
+        ("get", "/api/graphs/{id}"),
+        ("get", "/api/graphs/{id}/doc"),
+        ("delete", "/api/graphs/{id}"),
+        ("put", "/api/graphs/{id}/folder"),
+        ("post", "/api/graphs/{id}/thumbnail"),
+        ("post", "/api/graphs/{id}/updates"),
         ("post", "/graphs/{id}/updates"),
+        ("get", "/graphs/{id}/thumbnail.png"),
     ],
 )
 def test_other_users_get_404(bob, graph_id, method, path):
     res = getattr(bob, method)(path.format(id=graph_id), headers=FETCH, data=PNG)
     assert res.status_code == 404
+    if path.startswith("/api/"):
+        assert res.get_json() == {"error": "not_found"}
 
 
-def test_library_lists_only_own_graphs_newest_first(app, alice, bob, graph_id):
-    second = alice.post("/graphs", headers={"Origin": ORIGIN}).headers["Location"].rsplit("/", 1)[1]
+def test_list_has_only_own_graphs_newest_first(app, alice, bob, graph_id):
+    second = new_graph(alice)
     writer = Writer(alice, graph_id)
     assert post_updates(alice, graph_id, [writer.edit(lambda m: m.__setitem__("title", Text("Parabola")))]).status_code == 200
-    page = alice.get("/").get_data(as_text=True)
-    assert page.index(graph_id) < page.index(second)
-    assert "Parabola" in page
-    assert graph_id not in bob.get("/").get_data(as_text=True)
+    listed = graph_list(alice)
+    assert [g["id"] for g in listed] == [graph_id, second]
+    assert listed[0]["title"] == "Parabola"
+    assert listed[0]["updated_at"] >= listed[1]["updated_at"]
+    assert graph_list(bob) == []
 
 
 def test_malformed_ids_404(alice):
-    assert alice.get("/calculator/not-a-uuid").status_code == 404
+    res = alice.get("/api/graphs/not-a-uuid")
+    assert res.status_code == 404 and res.get_json() == {"error": "not_found"}
+    assert alice.get("/api/graphs/not-a-uuid/doc").status_code == 404
     assert alice.get("/images/xyz").status_code == 404
 
 
@@ -108,6 +138,19 @@ def test_updates_round_trip_and_title_mirror(app, alice, graph_id):
     assert res.get_json() == {"acked": [first[0], second[0]], "seq": 3}
     assert str(load_doc(alice, graph_id).get("meta", type=Map)["title"]) == "Hello world"
     assert rows(app, "SELECT title FROM graphs WHERE id = ?", graph_id) == [("Hello world",)]
+    assert alice.get(f"/api/graphs/{graph_id}").get_json()["title"] == "Hello world"
+
+
+def test_legacy_updates_alias_still_saves(app, alice, graph_id):
+    writer = Writer(alice, graph_id)
+    first = writer.edit(lambda m: m.__setitem__("title", Text("Legacy")))
+    assert post_updates(alice, graph_id, [first], headers={}, prefix="").status_code == 403
+    res = post_updates(alice, graph_id, [first], prefix="")
+    assert res.status_code == 200 and res.get_json() == {"acked": [first[0]], "seq": 2}
+    assert post_updates(alice, graph_id, [first]).get_json() == {"acked": [first[0]], "seq": 2}
+    assert rows(app, "SELECT title FROM graphs WHERE id = ?", graph_id) == [("Legacy",)]
+    assert post_updates(alice, graph_id, [(str(uuid.uuid4()), b"garbage")], prefix="").status_code == 400
+    assert post_updates(app.test_client(), graph_id, [first], prefix="").status_code == 401
 
 
 def test_duplicate_update_ids_are_acked_but_not_appended(app, alice, graph_id):
@@ -146,49 +189,70 @@ def test_out_of_order_update_survives_checkpoint(app, alice, graph_id, monkeypat
 
 
 def test_invalid_update_rejected(alice, graph_id):
-    assert post_updates(alice, graph_id, [(str(uuid.uuid4()), b"garbage")]).status_code == 400
-    res = alice.post(f"/graphs/{graph_id}/updates", json={"updates": [{"id": "nope", "data": "AA=="}]}, headers=FETCH)
+    res = post_updates(alice, graph_id, [(str(uuid.uuid4()), b"garbage")])
+    assert res.status_code == 400 and res.get_json() == {"error": "Bad request."}
+    res = alice.post(f"/api/graphs/{graph_id}/updates", json={"updates": [{"id": "nope", "data": "AA=="}]}, headers=FETCH)
     assert res.status_code == 400
+    assert post_updates(alice, graph_id, []).status_code == 400
 
 
-def test_csrf_rejections(app, alice, graph_id):
-    writer = Writer()
-    assert post_updates(alice, graph_id, [writer.edit(lambda m: m.__setitem__("k", 1))], headers={}).status_code == 403
-    assert alice.post(f"/graphs/{graph_id}/thumbnail", data=PNG).status_code == 403
-    assert alice.post("/images", data=PNG, content_type="image/png").status_code == 403
-    assert alice.post("/graphs").status_code == 403
-    assert alice.post("/graphs", headers={"Origin": "https://evil.example"}).status_code == 403
+def test_logout_requires_same_origin(alice):
     assert alice.post("/auth/logout", headers={"Origin": "https://evil.example"}).status_code == 403
-    assert alice.get("/").status_code == 200
-    assert alice.post("/auth/logout", headers={"Origin": ORIGIN}).status_code == 302
-    assert alice.get("/").status_code == 302
+    assert alice.post("/auth/logout").status_code == 403
+    assert alice.get("/api/me").status_code == 200
+    res = alice.post("/auth/logout", headers={"Origin": ORIGIN})
+    assert res.status_code == 302 and res.headers["Location"] == "/login"
+    assert alice.get("/api/me").status_code == 401
+    assert alice.get("/").headers["Location"] == "/login"
 
 
 def test_thumbnail_upload_and_serve(alice, graph_id):
-    assert alice.post(f"/graphs/{graph_id}/thumbnail", data=b"not a png", headers=FETCH).status_code == 400
+    assert alice.post(f"/api/graphs/{graph_id}/thumbnail", data=b"not a png", headers=FETCH).status_code == 400
     assert alice.get(f"/graphs/{graph_id}/thumbnail.png").status_code == 404
-    assert alice.post(f"/graphs/{graph_id}/thumbnail", data=PNG, headers=FETCH).status_code == 200
+    res = alice.post(f"/api/graphs/{graph_id}/thumbnail", data=PNG, headers=FETCH)
+    assert res.status_code == 200 and res.get_json() == {"ok": True}
     res = alice.get(f"/graphs/{graph_id}/thumbnail.png")
     assert res.data == PNG and res.mimetype == "image/png"
-    assert f"/graphs/{graph_id}/thumbnail.png?v=" in alice.get("/").get_data(as_text=True)
+    assert res.headers["Cache-Control"] == "private, no-cache"
+    thumbnail_at = alice.get(f"/api/graphs/{graph_id}").get_json()["thumbnail_at"]
+    assert isinstance(thumbnail_at, int)
+    assert graph_list(alice)[0]["thumbnail_at"] == thumbnail_at
+    res = alice.get(f"/graphs/{graph_id}/thumbnail.png?v={thumbnail_at}")
+    assert res.headers["Cache-Control"] == "private, max-age=31536000, immutable"
+
+
+def test_thumbnail_rejects_oversized_png(alice, graph_id, monkeypatch):
+    monkeypatch.setattr(graphs, "MAX_THUMBNAIL_BYTES", len(PNG) - 1)
+    assert alice.post(f"/api/graphs/{graph_id}/thumbnail", data=PNG, headers=FETCH).status_code == 400
 
 
 def test_image_upload_dedupes_and_checks_ownership(app, alice, bob):
     sha = hashlib.sha256(PNG).hexdigest()
-    first = alice.post("/images", data=PNG, content_type="image/png", headers=FETCH)
-    again = alice.post("/images", data=PNG, content_type="image/png", headers=FETCH)
+    first = alice.post("/api/images", data=PNG, content_type="image/png", headers=FETCH)
+    again = alice.post("/api/images", data=PNG, content_type="image/png", headers=FETCH)
     assert first.get_json() == again.get_json() == {"url": f"/images/{sha}"}
     assert rows(app, "SELECT COUNT(*) FROM images") == [(1,)]
-    assert alice.get(f"/images/{sha}").data == PNG
+    res = alice.get(f"/images/{sha}")
+    assert res.data == PNG and res.mimetype == "image/png"
+    assert res.headers["X-Content-Type-Options"] == "nosniff" and "sandbox" in res.headers["Content-Security-Policy"]
     assert bob.get(f"/images/{sha}").status_code == 404
-    assert bob.post("/images", data=PNG, content_type="image/png", headers=FETCH).status_code == 200
+    assert bob.post("/api/images", data=PNG, content_type="image/png", headers=FETCH).status_code == 200
     assert bob.get(f"/images/{sha}").data == PNG
     assert rows(app, "SELECT COUNT(*) FROM images") == [(1,)]
     assert rows(app, "SELECT COUNT(*) FROM image_owners") == [(2,)]
 
 
 def test_image_upload_rejects_bad_type(alice):
-    assert alice.post("/images", data=b"<html>", content_type="text/html", headers=FETCH).status_code == 400
+    res = alice.post("/api/images", data=b"<html>", content_type="text/html", headers=FETCH)
+    assert res.status_code == 400 and res.get_json() == {"error": "Bad request."}
+    assert alice.post("/api/images", data=b"", content_type="image/png", headers=FETCH).status_code == 400
+
+
+def test_images_need_login(app, alice):
+    sha = hashlib.sha256(PNG).hexdigest()
+    alice.post("/api/images", data=PNG, content_type="image/png", headers=FETCH)
+    res = app.test_client().get(f"/images/{sha}")
+    assert res.status_code == 302 and res.headers["Location"] == "/login"
 
 
 def test_dev_login_only_in_debug(app, monkeypatch):
@@ -201,8 +265,10 @@ def test_dev_login_only_in_debug(app, monkeypatch):
     try:
         assert "Dev sign-in as dev@pinewood.edu" in client.get("/login").get_data(as_text=True)
         assert client.post("/auth/dev-login").status_code == 403
-        assert client.post("/auth/dev-login", headers={"Origin": ORIGIN}).status_code == 302
-        assert client.get("/").headers["Location"].startswith("/welcome")
+        res = client.post("/auth/dev-login", headers={"Origin": ORIGIN})
+        assert res.status_code == 302 and res.headers["Location"] == "/"
+        assert client.get("/").headers["Location"] == "/welcome?next=/"
+        assert client.get("/login").headers["Location"] == "/"
     finally:
         app.debug = False
 
@@ -218,12 +284,23 @@ def test_dev_login_refuses_non_local_base_url(app, monkeypatch):
         app.debug = False
 
 
+def test_login_page_shows_error_messages(app):
+    client = app.test_client()
+    page = client.get("/login?error=invalid_domain").get_data(as_text=True)
+    assert "Sign in with your pinewood.edu account." in page and "/auth/google" in page
+    assert "Sign-in failed, try again." in client.get("/login?error=whatever").get_data(as_text=True)
+
+
 def test_delete_hides_graph_but_keeps_log(app, alice, bob, graph_id):
     writer = Writer(alice, graph_id)
     assert post_updates(alice, graph_id, [writer.edit(lambda m: m.__setitem__("title", Text("Gone")))]).status_code == 200
-    assert bob.post(f"/graphs/{graph_id}/delete", headers={"Origin": ORIGIN}).status_code == 404
-    assert alice.post(f"/graphs/{graph_id}/delete").status_code == 403
-    assert alice.post(f"/graphs/{graph_id}/delete", headers={"Origin": ORIGIN}).status_code == 302
-    assert graph_id not in alice.get("/").get_data(as_text=True)
-    assert alice.get(f"/calculator/{graph_id}").status_code == 404
+    assert bob.delete(f"/api/graphs/{graph_id}", headers=FETCH).status_code == 404
+    assert alice.delete(f"/api/graphs/{graph_id}").status_code == 403
+    res = alice.delete(f"/api/graphs/{graph_id}", headers=FETCH)
+    assert res.status_code == 200 and res.get_json() == {"ok": True}
+    assert graph_list(alice) == []
+    assert alice.get(f"/api/graphs/{graph_id}").status_code == 404
+    assert alice.get(f"/api/graphs/{graph_id}/doc").status_code == 404
+    assert alice.delete(f"/api/graphs/{graph_id}", headers=FETCH).status_code == 404
     assert rows(app, "SELECT COUNT(*) FROM updates WHERE graph_id = ?", graph_id) == [(2,)]
+    assert rows(app, "SELECT deleted_at IS NOT NULL FROM graphs WHERE id = ?", graph_id) == [(1,)]

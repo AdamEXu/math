@@ -11,11 +11,18 @@ from users import dev_user, update_profile
 
 ORIGIN = "http://localhost:5050"
 FETCH = {"X-Requested-With": "fetch"}
+INDEX_HTML = "<!doctype html><title>math</title><div id=root></div>"
+ASSET = "assets/index-abc123.js"
 
 
 @pytest.fixture
-def app(tmp_path):
-    flask_app.config.update(TESTING=True, DATA_DIR=tmp_path)
+def app(tmp_path, monkeypatch):
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text(INDEX_HTML)
+    (dist / ASSET).write_text("console.log('math')")
+    flask_app.config.update(TESTING=True, DATA_DIR=tmp_path / "data", FRONTEND_DIST=dist)
     yield flask_app
 
 
@@ -36,6 +43,13 @@ def signed_in(app, email, handle=None):
     return client
 
 
+def new_graph(client, folder_id=None):
+    payload = {"folder_id": folder_id} if folder_id else None
+    res = client.post("/api/graphs", json=payload, headers=FETCH) if payload else client.post("/api/graphs", headers=FETCH)
+    assert res.status_code == 201, res.get_json()
+    return res.get_json()["id"]
+
+
 @pytest.fixture
 def alice(app):
     return signed_in(app, "alice@pinewood.edu", "alice")
@@ -48,6 +62,4 @@ def bob(app):
 
 @pytest.fixture
 def graph_id(alice):
-    res = alice.post("/graphs", headers={"Origin": ORIGIN})
-    assert res.status_code == 302
-    return res.headers["Location"].rsplit("/", 1)[1]
+    return new_graph(alice)

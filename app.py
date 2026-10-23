@@ -2,15 +2,14 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, g, redirect, render_template, request, session, url_for
+from flask import Flask, redirect, render_template, request, session
+from werkzeug.exceptions import HTTPException
 
-from account import account_bp
+from api import api_bp, api_error, is_api_path
 from auth import auth_bp, dev_login_email
 from db import close_db
-from folders import folders_bp
-from graphs import MAX_IMAGE_BYTES, graphs_bp
-from lucide import lucide_svg
-from users import avatar_hue, avatar_initial, avatar_url
+from graphs import MAX_IMAGE_BYTES, files_bp
+from spa import is_spa_path, not_found_page, spa_bp
 
 app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
@@ -20,12 +19,13 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=timedelta(days=30),
     DATA_DIR=os.environ.get("DATA_DIR", Path(__file__).parent / "data"),
+    FRONTEND_DIST=Path(__file__).parent / "frontend" / "dist",
     MAX_CONTENT_LENGTH=MAX_IMAGE_BYTES + (1 << 20),
 )
 app.register_blueprint(auth_bp)
-app.register_blueprint(graphs_bp)
-app.register_blueprint(account_bp)
-app.register_blueprint(folders_bp)
+app.register_blueprint(api_bp)
+app.register_blueprint(files_bp)
+app.register_blueprint(spa_bp)
 app.teardown_appcontext(close_db)
 
 LOGIN_ERRORS = {
@@ -34,21 +34,19 @@ LOGIN_ERRORS = {
 }
 
 
-@app.context_processor
-def current_user():
-    return {
-        "current_user": g.get("user"),
-        "avatar_url": avatar_url,
-        "avatar_initial": avatar_initial,
-        "avatar_hue": avatar_hue,
-        "lucide_svg": lucide_svg,
-    }
+@app.errorhandler(HTTPException)
+def http_error(error):
+    if is_api_path(request.path):
+        return api_error(error)
+    if error.code == 404 and request.method in ("GET", "HEAD") and is_spa_path(request.path):
+        return not_found_page()
+    return error
 
 
 @app.get("/login")
 def login():
     if "user_id" in session:
-        return redirect(url_for("graphs.library"))
+        return redirect("/")
     error = request.args.get("error")
     message = LOGIN_ERRORS.get(error, "Sign-in failed, try again.") if error else None
     return render_template("login.html", error=message, dev_email=dev_login_email())

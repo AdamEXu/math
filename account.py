@@ -1,36 +1,47 @@
-from flask import Blueprint, g, redirect, render_template, request, url_for
+import os
 
-from auth import login_required, safe_next, same_origin
-from users import check_handle, suggest_handle, update_profile
+from flask import Blueprint, abort, g, request
+
+from auth import login_required
+from users import avatar_hue, avatar_initial, avatar_url, check_handle, get_user, suggest_handle, update_profile
 
 account_bp = Blueprint("account", __name__)
 
 
-def submitted_profile():
-    return update_profile(g.user["id"], request.form.get("handle"), request.form.get("display_name"))
+def me_json(user):
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "handle": user["handle"] or None,
+        "display_name": user["display_name"],
+        "avatar_url": avatar_url(user),
+        "avatar_hue": avatar_hue(user),
+        "avatar_initial": avatar_initial(user),
+        "suggested_handle": None if user["handle"] else suggest_handle(user["email"]),
+    }
 
 
-@account_bp.get("/welcome")
+def text_field(payload, key):
+    value = payload.get(key)
+    return value if isinstance(value, str) else None
+
+
+@account_bp.get("/me")
 @login_required(handle=False)
-def welcome():
-    next_url = safe_next(request.args.get("next"))
-    if g.user["handle"]:
-        return redirect(next_url or url_for("graphs.library"))
-    profile = {"handle": suggest_handle(g.user["email"]) or "", "display_name": g.user["display_name"]}
-    return render_template("welcome.html", profile=profile, errors={}, next_url=next_url)
+def me():
+    return me_json(g.user)
 
 
-@account_bp.post("/welcome")
+@account_bp.put("/me")
 @login_required(handle=False)
-@same_origin
-def finish_welcome():
-    next_url = safe_next(request.form.get("next"))
-    if g.user["handle"]:
-        return redirect(next_url or url_for("graphs.library"))
-    profile, errors = submitted_profile()
+def update_me():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        abort(400)
+    profile, errors = update_profile(g.user["id"], text_field(payload, "handle"), text_field(payload, "display_name"))
     if errors:
-        return render_template("welcome.html", profile=profile, errors=errors, next_url=next_url), 400
-    return redirect(next_url or url_for("graphs.library"))
+        return {"error": "invalid", "errors": errors, "profile": profile}, 400
+    return me_json(get_user(g.user["id"]))
 
 
 @account_bp.get("/handles/check")
@@ -40,18 +51,7 @@ def handle_check():
     return {"handle": handle, "available": error is None, "error": error}
 
 
-@account_bp.get("/settings")
-@login_required
-def settings():
-    profile = {"handle": g.user["handle"], "display_name": g.user["display_name"]}
-    return render_template("settings.html", profile=profile, errors={}, saved="saved" in request.args)
-
-
-@account_bp.post("/settings")
-@login_required
-@same_origin
-def save_settings():
-    profile, errors = submitted_profile()
-    if errors:
-        return render_template("settings.html", profile=profile, errors=errors, saved=False), 400
-    return redirect(url_for("account.settings", saved=1))
+@account_bp.get("/config")
+@login_required(handle=False)
+def config():
+    return {"desmos_api_key": os.environ["DESMOS_API_KEY"]}

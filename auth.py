@@ -19,9 +19,16 @@ def _redirect_uri():
     return f"{os.environ['BASE_URL'].rstrip('/')}/auth/google/callback"
 
 
-def _base_origin():
-    base = urlsplit(os.environ["BASE_URL"])
-    return f"{base.scheme}://{base.netloc}"
+def _origin(url):
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def allowed_origins():
+    origins = {_origin(os.environ["BASE_URL"])}
+    if os.environ.get("FRONTEND_URL"):
+        origins.add(_origin(os.environ["FRONTEND_URL"]))
+    return origins
 
 
 def safe_next(target):
@@ -34,7 +41,7 @@ def login_required(view=None, *, handle=True):
 
     @wraps(view)
     def wrapped(*args, **kwargs):
-        api = bool(request.headers.get("X-Requested-With"))
+        api = request.path.startswith("/api/") or bool(request.headers.get("X-Requested-With"))
         user = get_user(session["user_id"]) if "user_id" in session else None
         if user is None:
             session.clear()
@@ -44,7 +51,7 @@ def login_required(view=None, *, handle=True):
             if api:
                 return {"error": "handle_required"}, 403
             target = request.full_path.rstrip("?") if request.method == "GET" else None
-            return redirect(url_for("account.welcome", next=target))
+            return redirect(url_for("spa.welcome", next=target))
         return view(*args, **kwargs)
 
     return wrapped
@@ -59,7 +66,7 @@ def sign_in(user):
 def same_origin(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if request.headers.get("Origin") != _base_origin():
+        if request.headers.get("Origin") not in allowed_origins():
             abort(403)
         return view(*args, **kwargs)
 
@@ -144,7 +151,7 @@ def google_callback():
         return _fail("email_in_use")
     set_google_picture(account["id"], user.get("picture"))
     sign_in(account)
-    return redirect(url_for("graphs.library"))
+    return redirect("/")
 
 
 @auth_bp.post("/dev-login")
@@ -154,7 +161,7 @@ def dev_login():
     if not email:
         abort(404)
     sign_in(dev_user(email))
-    return redirect(url_for("graphs.library"))
+    return redirect("/")
 
 
 @auth_bp.post("/logout")

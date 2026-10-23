@@ -3,14 +3,8 @@ import sqlite3
 from pycrdt import Map
 
 import db as db_module
-from tests.conftest import ORIGIN, signed_in
-from tests.test_graphs import Writer, load_doc, post_updates, rows
-
-
-def create(client):
-    res = client.post("/graphs", headers={"Origin": ORIGIN})
-    assert res.status_code == 302
-    return res.headers["Location"].rsplit("/", 1)[1]
+from tests.conftest import FETCH, new_graph as create, signed_in
+from tests.test_graphs import Writer, graph_list, load_doc, post_updates, rows
 
 
 def title(app, graph_id):
@@ -40,7 +34,7 @@ def test_numbering_fills_gaps_and_ignores_deleted(app, alice):
     first, second, third = create(alice), create(alice), create(alice)
     rename(alice, second, "Parabola")
     assert title(app, create(alice)) == "Untitled Graph (2)"
-    assert alice.post(f"/graphs/{first}/delete", headers={"Origin": ORIGIN}).status_code == 302
+    assert alice.delete(f"/api/graphs/{first}", headers=FETCH).status_code == 200
     assert title(app, create(alice)) == "Untitled Graph"
     assert title(app, third) == "Untitled Graph (3)"
 
@@ -53,7 +47,7 @@ def test_title_lives_in_doc_and_survives_round_trip(app, alice):
     assert post_updates(alice, graph_id, [writer.edit(lambda m: m.__setitem__("k", 1))]).status_code == 200
     assert title(app, graph_id) == "Untitled Graph"
     assert str(load_doc(alice, graph_id).get("meta", type=Map)["title"]) == "Untitled Graph"
-    assert "Untitled Graph" in alice.get("/").get_data(as_text=True)
+    assert [g["title"] for g in graph_list(alice)] == ["Untitled Graph"]
 
 
 def test_backfill_names_empty_titles_and_fixes_doc(app, alice, bob):

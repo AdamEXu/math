@@ -1,17 +1,15 @@
 import base64
 import binascii
 import hashlib
-import os
 import re
 import uuid
 
-from flask import Blueprint, Response, abort, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, g, request, url_for
 from pycrdt import Doc, Map, Text, merge_updates
 
-from auth import fetch_only, login_required, same_origin
+from auth import fetch_only, login_required
 from db import INIT_HOOKS, get_db, now_ms, uuid7, write_transaction
-from folders import FOLDER_COLORS, folder_json, owned_folder, place_graph, user_folders
-from lucide import ICON_MARKUP, LUCIDE_VERSION
+from folders import owned_folder, place_graph
 
 CHECKPOINT_EVERY = 200
 MAX_UPDATES_PER_REQUEST = 500
@@ -25,8 +23,15 @@ SHA256_RE = re.compile(r"[0-9a-f]{64}")
 DEFAULT_TITLE = "Untitled Graph"
 DEFAULT_TITLE_RE = re.compile(r"Untitled Graph(?: \((\d+)\))?")
 EMPTY_UPDATE = Doc().get_update()
+GRAPH_QUERY = (
+    "SELECT graphs.id, graphs.title, graphs.updated_at, graphs.thumbnail_at, graph_placements.folder_id"
+    " FROM graphs LEFT JOIN graph_placements"
+    " ON graph_placements.graph_id = graphs.id AND graph_placements.user_id = :user"
+    " WHERE graphs.owner_id = :user AND graphs.deleted_at IS NULL"
+)
 
 graphs_bp = Blueprint("graphs", __name__)
+files_bp = Blueprint("files", __name__)
 
 
 def owned_graph(graph_id):
@@ -40,6 +45,15 @@ def owned_graph(graph_id):
     if row is None:
         abort(404)
     return row
+
+
+def graph_json(row):
+    return {key: row[key] for key in ("id", "title", "updated_at", "thumbnail_at", "folder_id")}
+
+
+def graph_by_id(graph_id):
+    row = get_db().execute(GRAPH_QUERY + " AND graphs.id = :id", {"user": g.user["id"], "id": graph_id}).fetchone()
+    return graph_json(row)
 
 
 def load_state(db, graph_id):
@@ -139,46 +153,21 @@ def parse_updates(payload):
     return parsed
 
 
-def render_library(view):
-    rows = get_db().execute(
-        "SELECT graphs.id, graphs.title, graphs.updated_at, graphs.thumbnail_at, graph_placements.folder_id"
-        " FROM graphs LEFT JOIN graph_placements"
-        " ON graph_placements.graph_id = graphs.id AND graph_placements.user_id = graphs.owner_id"
-        " WHERE graphs.owner_id = ? AND graphs.deleted_at IS NULL ORDER BY graphs.updated_at DESC",
-        (g.user["id"],),
-    ).fetchall()
-    folders = [folder_json(row) for row in user_folders(g.user["id"])]
-    icons = {folder["icon"]: ICON_MARKUP.get(folder["icon"], "") for folder in folders}
-    return render_template(
-        "library.html", graphs=rows, folders=folders, view=view, folder_colors=FOLDER_COLORS, folder_icon_markup=icons,
-        lucide_version=LUCIDE_VERSION,
-    )
-
-
-@graphs_bp.get("/")
+@graphs_bp.get("/graphs")
 @login_required
-def library():
-    return render_library("all")
-
-
-@graphs_bp.get("/folders/<folder_id>")
-@login_required
-def folder(folder_id):
-    return render_library(owned_folder(folder_id)["id"])
-
-
-@graphs_bp.get("/shared")
-@login_required
-def shared():
-    return render_library("shared")
+def list_graphs():
+    rows = get_db().execute(GRAPH_QUERY + " ORDER BY graphs.updated_at DESC", {"user": g.user["id"]}).fetchall()
+    return {"graphs": [graph_json(row) for row in rows]}
 
 
 @graphs_bp.post("/graphs")
 @login_required
-@same_origin
 def create():
-    folder_id = request.form.get("folder_id")
-    folder_id = owned_folder(folder_id)["id"] if folder_id else None
+    payload = request.get_json(silent=True) if request.get_data() else {}
+    if not isinstance(payload, dict):
+        abort(400)
+    folder_id = payload.get("folder_id")
+    folder_id = owned_folder(folder_id)["id"] if folder_id is not None else None
     graph_id = uuid7()
     now = now_ms()
     db = get_db()
@@ -191,23 +180,27 @@ def create():
         append_server_update(db, graph_id, g.user["id"], title_update(EMPTY_UPDATE, title), now)
         if folder_id:
             place_graph(db, g.user["id"], graph_id, folder_id)
-    return redirect(url_for("graphs.calculator", graph_id=graph_id))
+    return graph_by_id(graph_id), 201
 
 
-@graphs_bp.post("/graphs/<graph_id>/delete")
+@graphs_bp.get("/graphs/<graph_id>")
 @login_required
-@same_origin
+def show(graph_id):
+    return graph_by_id(owned_graph(graph_id)["id"])
+
+
+@graphs_bp.delete("/graphs/<graph_id>")
+@login_required
 def delete(graph_id):
     graph_id = owned_graph(graph_id)["id"]
     db = get_db()
     with write_transaction(db):
         db.execute("UPDATE graphs SET deleted_at = ? WHERE id = ?", (now_ms(), graph_id))
-    return redirect(url_for("graphs.library"))
+    return {"ok": True}
 
 
-@graphs_bp.post("/graphs/<graph_id>/folder")
+@graphs_bp.put("/graphs/<graph_id>/folder")
 @login_required
-@fetch_only
 def move(graph_id):
     graph_id = owned_graph(graph_id)["id"]
     payload = request.get_json(silent=True)
@@ -221,13 +214,6 @@ def move(graph_id):
     return {"folder_id": folder_id}
 
 
-@graphs_bp.get("/calculator/<graph_id>")
-@login_required
-def calculator(graph_id):
-    graph = owned_graph(graph_id)
-    return render_template("calculator.html", graph=graph, api_key=os.environ["DESMOS_API_KEY"])
-
-
 @graphs_bp.get("/graphs/<graph_id>/doc")
 @login_required
 def load(graph_id):
@@ -238,7 +224,6 @@ def load(graph_id):
 
 @graphs_bp.post("/graphs/<graph_id>/updates")
 @login_required
-@fetch_only
 def append_updates(graph_id):
     graph_id = owned_graph(graph_id)["id"]
     parsed = parse_updates(request.get_json(silent=True))
@@ -270,7 +255,6 @@ def append_updates(graph_id):
 
 @graphs_bp.post("/graphs/<graph_id>/thumbnail")
 @login_required
-@fetch_only
 def upload_thumbnail(graph_id):
     graph_id = owned_graph(graph_id)["id"]
     png = request.get_data()
@@ -283,20 +267,8 @@ def upload_thumbnail(graph_id):
     return {"ok": True}
 
 
-@graphs_bp.get("/graphs/<graph_id>/thumbnail.png")
-@login_required
-def thumbnail(graph_id):
-    graph_id = owned_graph(graph_id)["id"]
-    row = get_db().execute("SELECT png FROM thumbnails WHERE graph_id = ?", (graph_id,)).fetchone()
-    if row is None:
-        abort(404)
-    cache = "private, max-age=31536000, immutable" if "v" in request.args else "private, no-cache"
-    return Response(row["png"], mimetype="image/png", headers={"Cache-Control": cache})
-
-
 @graphs_bp.post("/images")
 @login_required
-@fetch_only
 def upload_image():
     data = request.get_data()
     if request.mimetype not in IMAGE_TYPES or not data or len(data) > MAX_IMAGE_BYTES:
@@ -309,10 +281,26 @@ def upload_image():
             (sha, request.mimetype, data, now_ms()),
         )
         db.execute("INSERT OR IGNORE INTO image_owners (sha256, owner_id) VALUES (?, ?)", (sha, g.user["id"]))
-    return {"url": url_for("graphs.image", sha=sha)}
+    return {"url": url_for("files.image", sha=sha)}
 
 
-@graphs_bp.get("/images/<sha>")
+files_bp.add_url_rule(
+    "/graphs/<graph_id>/updates", "legacy_updates", fetch_only(append_updates), methods=["POST"]
+)
+
+
+@files_bp.get("/graphs/<graph_id>/thumbnail.png")
+@login_required
+def thumbnail(graph_id):
+    graph_id = owned_graph(graph_id)["id"]
+    row = get_db().execute("SELECT png FROM thumbnails WHERE graph_id = ?", (graph_id,)).fetchone()
+    if row is None:
+        abort(404)
+    cache = "private, max-age=31536000, immutable" if "v" in request.args else "private, no-cache"
+    return Response(row["png"], mimetype="image/png", headers={"Cache-Control": cache})
+
+
+@files_bp.get("/images/<sha>")
 @login_required
 def image(sha):
     if not SHA256_RE.fullmatch(sha):

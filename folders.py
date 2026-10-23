@@ -3,9 +3,9 @@ import uuid
 
 from flask import Blueprint, abort, g, request
 
-from auth import fetch_only, login_required
+from auth import login_required
 from db import get_db, now_ms, uuid7, write_transaction
-from lucide import ICON_NAMES
+from lucide import ICON_MARKUP, ICON_NAMES
 
 FOLDER_COLORS = {
     "#737373": "Grey",
@@ -85,20 +85,22 @@ def folder_changes(payload, require_name):
             abort(400, "Unknown icon.")
         changes["icon"] = payload["icon"]
     if "color" in payload:
-        if payload["color"] not in FOLDER_COLORS:
+        if not isinstance(payload["color"], str) or payload["color"] not in FOLDER_COLORS:
             abort(400, "Unknown color.")
         changes["color"] = payload["color"]
     return changes
 
 
-@folders_bp.errorhandler(400)
-def bad_request(error):
-    return {"error": error.description if isinstance(error.description, str) else "Bad request."}, 400
+@folders_bp.get("/folders")
+@login_required
+def list_folders():
+    folders = [folder_json(row) for row in user_folders(g.user["id"])]
+    icons = {folder["icon"]: ICON_MARKUP.get(folder["icon"], "") for folder in folders}
+    return {"folders": folders, "icons": icons}
 
 
 @folders_bp.post("/folders")
 @login_required
-@fetch_only
 def create():
     changes = folder_changes(request.get_json(silent=True), require_name=True)
     folder_id = uuid7()
@@ -117,9 +119,8 @@ def create():
     return folder_json(owned_folder(folder_id)), 201
 
 
-@folders_bp.post("/folders/<folder_id>")
+@folders_bp.patch("/folders/<folder_id>")
 @login_required
-@fetch_only
 def update(folder_id):
     folder_id = owned_folder(folder_id)["id"]
     changes = folder_changes(request.get_json(silent=True), require_name=False)
@@ -129,9 +130,8 @@ def update(folder_id):
     return folder_json(owned_folder(folder_id))
 
 
-@folders_bp.post("/folders/<folder_id>/delete")
+@folders_bp.delete("/folders/<folder_id>")
 @login_required
-@fetch_only
 def delete(folder_id):
     folder_id = owned_folder(folder_id)["id"]
     db = get_db()
