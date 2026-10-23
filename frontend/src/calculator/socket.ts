@@ -87,7 +87,7 @@ export class GraphSocket {
       encoding.writeVarUint(encoder, MESSAGE_SYNC);
       syncProtocol.writeSyncStep1(encoder, this.doc);
       ws.send(encoding.toUint8Array(encoder));
-      this.sendAwareness([this.doc.clientID]);
+      this.rejoinAwareness();
     };
     ws.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       this.awaitingPong = false;
@@ -209,6 +209,15 @@ export class GraphSocket {
     if (origin === this) return;
     this.sendAwareness([...added, ...updated, ...removed]);
   };
+
+  private rejoinAwareness() {
+    const meta = this.awareness.meta.get(this.doc.clientID);
+    const state = this.awareness.getLocalState();
+    if (!meta || state === null) return this.sendAwareness([this.doc.clientID]);
+    // Peers saw our removal at clock + 1 while we were away; they ignore anything not newer than that.
+    meta.clock++;
+    this.awareness.setLocalState(state);
+  }
 
   private sendAwareness(clients: number[]) {
     const encoder = encoding.createEncoder();
