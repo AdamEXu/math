@@ -32,6 +32,7 @@ CLOSE_IDLE = 4000
 
 MAX_QUEUED = 2000
 MAX_AWARENESS_BYTES = 16 << 10
+EDITOR_PRESENCE = ("cursor", "pressed", "editing", "caret")
 MAX_WATCHED = 2000
 IDLE_TIMEOUT = 90
 
@@ -196,6 +197,9 @@ class Room:
                 continue
             if not isinstance(state, dict):
                 continue
+            if not at_least(peer.role, "editor"):
+                for field in EDITOR_PRESENCE:
+                    state.pop(field, None)
             state["user"] = peer.presence
             encoded = json.dumps(state, separators=(",", ":"))
             self.awareness[client_id] = (clock, encoded, peer)

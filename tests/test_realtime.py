@@ -272,6 +272,26 @@ def test_awareness_is_relayed_with_server_identity(server, app, alice, bob, grap
     b.close()
 
 
+def test_only_editors_broadcast_cursors(server, app, alice, bob, graph_id):
+    share(alice, graph_id, "bob", "viewer")
+    a = Peer(server, app, graph_id, alice.user_id)
+    a.handshake("owner")
+    b = Peer(server, app, graph_id, bob.user_id)
+    b.handshake("viewer")
+    cursor = {"cursor": {"kind": "graph", "x": 1, "y": 2}, "pressed": True, "editing": "3", "caret": {"id": "3"}}
+
+    b.ws.send_bytes(awareness(22, 1, {"selected": "1", **cursor}))
+    kind, [(_, _, state)] = a.recv()
+    assert kind == "awareness" and state["selected"] == "1"
+    assert not {"cursor", "pressed", "editing", "caret"} & state.keys()
+
+    a.ws.send_bytes(awareness(11, 1, cursor))
+    kind, [(_, _, state)] = b.recv()
+    assert state["cursor"] == cursor["cursor"] and state["caret"] == {"id": "3"}
+    a.close()
+    b.close()
+
+
 def test_role_message_format():
     assert Reader(role_message("viewer")[1:]).string() == "viewer"
     with pytest.raises(realtime.ProtocolError):
