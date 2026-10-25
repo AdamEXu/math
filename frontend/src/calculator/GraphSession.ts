@@ -50,6 +50,7 @@ const MAX_TWEEN_MS = 150;
 
 type Tween = { type: unknown; from: string; to: string; start: number; duration: number; shown: string };
 const TICKER_POLL_MS = 150;
+const SETTLE_MS = 250;
 const LEAVE_TIMEOUT_MS = 3000;
 const THUMBNAIL = { width: 320, height: 240, targetPixelRatio: 2 };
 const DEFAULT_TITLE = /^Untitled Graph( \(\d+\))?$/;
@@ -157,6 +158,7 @@ export class GraphSession {
   private readonly userTouched = new Set<string>();
   private tickerSeen = new Map<string, Json | undefined>();
   private tickerTimer: number | null = null;
+  private settleTimer: number | null = null;
   private readonly history: UndoHistory | null = null;
   private refreshUndo: () => void = () => undefined;
 
@@ -235,13 +237,14 @@ export class GraphSession {
     this.trackSliders(initial, false);
     this.watchTicker(initial);
     calc.observeEvent("change", (_name, event) => {
-      const user = event.isUserInitiated && !this.applyingRemote;
+      if (!event.isUserInitiated || this.applyingRemote) return this.scheduleSettle();
+      this.cancelSettle();
       const state = this.calc.getState();
-      const sliderChanged = this.trackSliders(state, user);
-      const tickerEdited = user && this.noteUserEdits(state);
+      const sliderChanged = this.trackSliders(state, true);
+      const tickerEdited = this.noteUserEdits(state);
       this.watchTicker(state);
       if (sliderChanged || tickerEdited) this.capture();
-      else if (user) this.scheduleCapture();
+      else this.scheduleCapture();
     });
     this.socket.awareness.on("change", this.onAwareness);
     if (this.canEdit) {
@@ -392,6 +395,26 @@ export class GraphSession {
     return changed;
   }
 
+  // Non-user changes arrive in bursts (remote tweens apply every frame), and serializing a large graph for each one
+  // competes with Desmos, so the slider and ticker baselines catch up at most once per SETTLE_MS.
+  private scheduleSettle() {
+    if (this.disposed || this.tickerTimer !== null) return;
+    this.settleTimer ??= window.setTimeout(() => this.settle(), SETTLE_MS);
+  }
+
+  private cancelSettle() {
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = null;
+  }
+
+  private settle() {
+    this.settleTimer = null;
+    if (this.disposed) return;
+    const state = this.calc.getState();
+    this.trackSliders(state, false);
+    this.watchTicker(state);
+  }
+
   private watchTicker(state: DesmosState) {
     if (tickerPlaying(state)) {
       if (this.tickerTimer === null) {
@@ -407,7 +430,9 @@ export class GraphSession {
   }
 
   private pollTicker() {
+    this.cancelSettle();
     const state = this.calc.getState();
+    this.trackSliders(state, false);
     if (!tickerPlaying(state)) return this.watchTicker(state);
     this.learnTicks(state);
     this.tickerSeen = latexById(state);
@@ -683,6 +708,8 @@ export class GraphSession {
         this.applyingRemote = false;
       }
       const applied = this.calc.getState();
+      this.cancelSettle();
+      this.trackSliders(applied, false);
       this.watchTicker(applied);
       if (this.tickerTimer !== null) this.tickerSeen = latexById(applied);
     }
@@ -745,6 +772,7 @@ export class GraphSession {
     if (this.retireTimer !== null) clearTimeout(this.retireTimer);
     if (this.tweenFrame !== null) cancelAnimationFrame(this.tweenFrame);
     if (this.tickerTimer !== null) clearInterval(this.tickerTimer);
+    this.cancelSettle();
     for (const detach of this.detachUi) detach();
     if (window.graphSession === this) delete window.graphSession;
 
