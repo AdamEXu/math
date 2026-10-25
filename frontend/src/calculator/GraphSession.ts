@@ -36,7 +36,9 @@ import {
   isLocalOrigin,
   writeState,
   writeTitle,
-  writeView,
+  VIEW_KEYS,
+  VIEW_SHAPE_KEYS,
+  writeGraphKeys,
 } from "./ydesmos";
 
 const CAPTURE_MS = 100;
@@ -654,9 +656,9 @@ export class GraphSession {
     const throttled = viewportChanged && now - this.lastViewportAt < VIEWPORT_MS;
     const title = this.titleInput.value;
     this.history?.before(stepOf(committed, state));
-    this.doc.transact(() => writeState(this.doc, state, { keepViewport: true }), LOCAL);
+    this.doc.transact(() => writeState(this.doc, state, { keepGraph: [...VIEW_KEYS, ...VIEW_SHAPE_KEYS] }), LOCAL);
     this.doc.transact(() => {
-      if (owner && !throttled) writeView(this.doc, state.graph);
+      writeGraphKeys(this.doc, state.graph, owner && !throttled ? [...VIEW_SHAPE_KEYS, ...VIEW_KEYS] : VIEW_SHAPE_KEYS);
       writeTitle(this.doc, title.trim() ? title : "");
     }, LOCAL_QUIET);
     if (throttled) this.scheduleCapture(VIEWPORT_MS - (now - this.lastViewportAt));

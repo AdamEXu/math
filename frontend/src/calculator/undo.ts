@@ -1,4 +1,14 @@
-import { type DesmosItem, type DesmosState, type Json, LOCAL, VIEW_KEYS, Y, deepEqual, isTextKey } from "./ydesmos";
+import {
+  type DesmosItem,
+  type DesmosState,
+  type Json,
+  LOCAL,
+  VIEW_KEYS,
+  VIEW_SHAPE_KEYS,
+  Y,
+  deepEqual,
+  isTextKey,
+} from "./ydesmos";
 
 export const TYPING_PAUSE_MS = 500;
 
@@ -14,7 +24,7 @@ const plain = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON
 
 function withoutView(graph: Record<string, Json | undefined> = {}) {
   const rest = { ...graph };
-  for (const key of VIEW_KEYS) delete rest[key];
+  for (const key of [...VIEW_KEYS, ...VIEW_SHAPE_KEYS]) delete rest[key];
   return rest;
 }
 

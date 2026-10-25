@@ -58,6 +58,7 @@ const NESTED_KEYS = new Set([
 const LIST_KEYS = new Set(["columns", "values"]);
 
 export const VIEW_KEYS = ["viewport", "__v12ViewportLatexStash"] as const;
+export const VIEW_SHAPE_KEYS = ["squareAxes"] as const;
 
 export const LOCAL = "local";
 export const LOCAL_QUIET = "local-quiet";
@@ -211,14 +212,14 @@ function syncOrder(order: Y.Array<string>, ids: string[]) {
   if (ids.length - start - end) order.insert(start, ids.slice(start, ids.length - end));
 }
 
-export function writeState(doc: Y.Doc, state: DesmosState, { keepViewport = false } = {}) {
+export function writeState(doc: Y.Doc, state: DesmosState, { keepGraph = [] }: { keepGraph?: readonly string[] } = {}) {
   const { graph = {}, expressions = {}, ...rest } = state;
   const { list = [], ticker, ...listRest } = expressions;
   doc.transact(() => {
     syncItem(doc.getMap("state"), rest, true);
     const graphMap = doc.getMap("graph");
     const nextGraph: JsonObject = { ...graph };
-    if (keepViewport) for (const key of VIEW_KEYS) nextGraph[key] = graphMap.get(key) as Json | undefined;
+    for (const key of keepGraph) nextGraph[key] = graphMap.get(key) as Json | undefined;
     syncItem(graphMap, nextGraph, true);
     syncItem(doc.getMap("list"), listRest, true);
     syncItem(doc.getMap("ticker"), ticker ?? {});
@@ -254,10 +255,10 @@ export function readState(doc: Y.Doc): DesmosState | null {
   return { ...state, graph: fromShared(doc.getMap("graph")) as JsonObject, expressions } as DesmosState;
 }
 
-export function writeView(doc: Y.Doc, graph: JsonObject = {}) {
+export function writeGraphKeys(doc: Y.Doc, graph: JsonObject = {}, keys: readonly string[]) {
   const map = doc.getMap("graph");
   doc.transact(() => {
-    for (const key of VIEW_KEYS) {
+    for (const key of keys) {
       const value = graph[key];
       if (value === undefined) map.delete(key);
       else if (!deepEqual(map.get(key), value)) map.set(key, value);

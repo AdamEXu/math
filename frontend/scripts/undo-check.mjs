@@ -33,7 +33,7 @@ function edit(doc, history, change) {
   const next = structuredClone(committed);
   change(next.expressions.list, next);
   history.before(stepOf(committed, next));
-  doc.transact(() => writeState(doc, next, { keepViewport: true }), LOCAL);
+  doc.transact(() => writeState(doc, next, { keepGraph: ["viewport", "squareAxes"] }), LOCAL);
 }
 
 const latexOf = (doc) => readState(doc).expressions.list.map((item) => `${item.id}:${item.latex ?? item.title ?? ""}`);
