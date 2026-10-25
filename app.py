@@ -8,6 +8,7 @@ from werkzeug.exceptions import HTTPException
 from api import api_bp, api_error, is_api_path
 from auth import auth_bp, dev_login_email, safe_next
 from db import close_db
+from desmos_bundle import desmos_bp
 from graphs import MAX_IMAGE_BYTES, files_bp
 from spa import is_spa_path, not_found_page, spa_bp
 
@@ -25,6 +26,7 @@ app.config.update(
 app.register_blueprint(auth_bp)
 app.register_blueprint(api_bp)
 app.register_blueprint(files_bp)
+app.register_blueprint(desmos_bp)
 app.register_blueprint(spa_bp)
 app.teardown_appcontext(close_db)
 

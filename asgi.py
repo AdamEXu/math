@@ -4,11 +4,14 @@ from a2wsgi import WSGIMiddleware
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 
+import desmos_bundle
 import realtime
 from app import app as flask_app
 
 if os.environ.get("FLASK_DEBUG") == "1":
     flask_app.debug = True
+
+desmos_bundle.start(flask_app)
 
 wsgi = WSGIMiddleware(flask_app, workers=int(os.environ.get("WSGI_THREADS", "32")))
 sockets = Starlette(

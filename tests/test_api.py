@@ -88,7 +88,9 @@ def test_config_requires_login_and_returns_key(app, monkeypatch):
     res = app.test_client().get("/api/config")
     assert res.status_code == 401 and res.get_json() == {"error": "signed_out"}
     client = signed_in(app, "carol@pinewood.edu")
-    assert client.get("/api/config").get_json() == {"desmos_api_key": "desmos-key"}
+    assert client.get("/api/config").get_json() == {
+        "desmos_scripts": ["https://www.desmos.com/api/v1.13/calculator.js?apiKey=desmos-key"]
+    }
 
 
 def test_doc_of_unknown_graph_is_json_404(alice):

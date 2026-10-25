@@ -3,6 +3,7 @@ import os
 from flask import Blueprint, abort, g, request
 
 from auth import login_required
+from desmos_bundle import script_urls
 from users import avatar_hue, avatar_initial, avatar_url, check_handle, get_user, suggest_handle, update_profile
 
 account_bp = Blueprint("account", __name__)
@@ -54,4 +55,4 @@ def handle_check():
 @account_bp.get("/config")
 @login_required(handle=False)
 def config():
-    return {"desmos_api_key": os.environ["DESMOS_API_KEY"]}
+    return {"desmos_scripts": script_urls(os.environ["DESMOS_API_KEY"])}

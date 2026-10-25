@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("SECRET_KEY", "test")
 os.environ.setdefault("BASE_URL", "http://localhost:5050")
 os.environ.setdefault("DESMOS_API_KEY", "test")
+os.environ["DESMOS_SELF_HOST"] = "0"
 
 import pytest
 

@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const FLASK = process.env.FLASK_URL ?? "http://localhost:5050";
-const SERVER_PATHS = ["/api", "/auth", "/login", "/static", "/images", "/graphs", "/health"];
+const SERVER_PATHS = ["/api", "/auth", "/login", "/static", "/images", "/graphs", "/health", "/desmos"];
 
 export default defineConfig({
   plugins: [react()],

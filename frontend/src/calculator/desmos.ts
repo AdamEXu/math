@@ -1,8 +1,6 @@
 import { fetchConfig } from "../api/me";
 import type { DesmosItem, DesmosState } from "./ydesmos";
 
-const DESMOS_SCRIPT = "https://www.desmos.com/api/v1.13/calculator.js";
-
 export type MathBounds = { left: number; right: number; bottom: number; top: number };
 export type ScreenshotOptions = {
   width: number;
@@ -65,8 +63,11 @@ function injectScript(src: string) {
 export function loadDesmos(): Promise<DesmosApi> {
   loading ??= (async () => {
     if (!window.Desmos) {
-      const { desmos_api_key } = await fetchConfig();
-      await injectScript(`${DESMOS_SCRIPT}?apiKey=${encodeURIComponent(desmos_api_key)}`);
+      const { desmos_scripts } = await fetchConfig();
+      for (const src of desmos_scripts) {
+        if (window.Desmos) break;
+        await injectScript(src).catch((error: unknown) => console.warn(`Couldn't load ${src}`, error));
+      }
     }
     if (!window.Desmos) throw new Error("Desmos failed to load");
     return window.Desmos;

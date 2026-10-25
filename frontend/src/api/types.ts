@@ -45,4 +45,4 @@ export type Folder = { id: string; name: string; icon: string; color: string };
 export type FolderChanges = Omit<Folder, "id">;
 export type FolderList = { folders: Folder[]; icons: Record<string, string> };
 
-export type Config = { desmos_api_key: string };
+export type Config = { desmos_scripts: string[] };
