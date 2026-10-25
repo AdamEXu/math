@@ -60,8 +60,14 @@ const LIST_KEYS = new Set(["columns", "values"]);
 export const VIEW_KEYS = ["viewport", "__v12ViewportLatexStash"] as const;
 
 export const LOCAL = "local";
+export const LOCAL_QUIET = "local-quiet";
 export const REMOTE = "remote";
 export const LOAD = "load";
+
+export const isLocalOrigin = (origin: unknown) =>
+  origin === LOCAL || origin === LOCAL_QUIET || origin instanceof Y.UndoManager;
+
+export const isTextKey = (key: string) => TEXT_KEYS.has(key);
 
 export type Json = string | number | boolean | null | Json[] | JsonObject;
 type JsonObject = { [key: string]: Json | undefined };
@@ -246,6 +252,17 @@ export function readState(doc: Y.Doc): DesmosState | null {
   const ticker = doc.getMap("ticker");
   if (ticker.size) expressions.ticker = fromShared(ticker);
   return { ...state, graph: fromShared(doc.getMap("graph")) as JsonObject, expressions } as DesmosState;
+}
+
+export function writeView(doc: Y.Doc, graph: JsonObject = {}) {
+  const map = doc.getMap("graph");
+  doc.transact(() => {
+    for (const key of VIEW_KEYS) {
+      const value = graph[key];
+      if (value === undefined) map.delete(key);
+      else if (!deepEqual(map.get(key), value)) map.set(key, value);
+    }
+  }, LOCAL_QUIET);
 }
 
 export function readViewport(doc: Y.Doc) {

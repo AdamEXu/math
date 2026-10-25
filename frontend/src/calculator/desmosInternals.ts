@@ -203,3 +203,35 @@ export function tickerActions(local: Json | undefined, wanted: Json | undefined)
   if (before.open && !after.open) actions.push({ type: "close-ticker" });
   return actions;
 }
+
+export type UndoRoute = { undo(): void; redo(): void; canUndo(): boolean; canRedo(): boolean };
+
+const UNDO_METHODS = ["undo", "redo", "canUndo", "canRedo"] as const;
+
+export function routeUndo(calc: Calculator, route: UndoRoute) {
+  const ctl = (calc as { controller?: Record<string, unknown> }).controller;
+  if (!ctl || typeof ctl.dispatch !== "function" || UNDO_METHODS.some((name) => typeof ctl[name] !== "function"))
+    return null;
+  Object.assign(ctl, {
+    undo: () => queueMicrotask(route.undo),
+    redo: () => queueMicrotask(route.redo),
+    canUndo: route.canUndo,
+    canRedo: route.canRedo,
+  });
+  let queued = false;
+  return {
+    refresh() {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        try {
+          (ctl as Controller).dispatch({ type: "render" });
+        } catch {}
+      });
+    },
+    detach() {
+      for (const name of UNDO_METHODS) delete ctl[name];
+    },
+  };
+}

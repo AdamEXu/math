@@ -18,11 +18,14 @@ import {
   withPatches,
   withTick,
 } from "./liveLayer";
-import { applyToCalculator, localView } from "./remote";
+import { routeUndo } from "./desmosInternals";
+import { applyToCalculator, expressionFocused, focusExpressionEnd, localView } from "./remote";
 import { type ConnectionStatus, GraphSocket } from "./socket";
+import { UndoHistory, affectedId, stepOf } from "./undo";
 import {
   LOAD,
   LOCAL,
+  LOCAL_QUIET,
   Y,
   type DesmosState,
   type Json,
@@ -30,8 +33,10 @@ import {
   readState,
   readTitle,
   readViewport,
+  isLocalOrigin,
   writeState,
   writeTitle,
+  writeView,
 } from "./ydesmos";
 
 const CAPTURE_MS = 100;
@@ -111,6 +116,14 @@ function tickerPlaying(state: DesmosState) {
   return state.expressions?.ticker?.playing === true;
 }
 
+function undoKey(event: KeyboardEvent) {
+  if (event.altKey || !(event.metaKey || event.ctrlKey)) return null;
+  const key = event.key.toLowerCase();
+  if (key === "z") return event.shiftKey ? "redo" : "undo";
+  if (key === "y" && event.ctrlKey && !event.metaKey && !event.shiftKey) return "redo";
+  return null;
+}
+
 function latexById(state: DesmosState) {
   return new Map((state.expressions?.list ?? []).map((item) => [String(item.id), item.latex]));
 }
@@ -142,6 +155,8 @@ export class GraphSession {
   private readonly userTouched = new Set<string>();
   private tickerSeen = new Map<string, Json | undefined>();
   private tickerTimer: number | null = null;
+  private readonly history: UndoHistory | null = null;
+  private refreshUndo: () => void = () => undefined;
 
   static async open({
     graphId,
@@ -176,12 +191,13 @@ export class GraphSession {
     });
     const state = readState(doc);
     if (state) calc.setState(readonly ? localView(state, state, true) : state);
+    calc.clearHistory();
     titleInput.value = readTitle(doc);
     titleInput.readOnly = readonly;
 
     const session = new GraphSession(graphId, role, doc, calc, container, persistence, titleInput, hooks);
     session.updateDocumentTitle();
-    if (!state && !readonly) writeState(doc, calc.getState());
+    if (!state && !readonly) doc.transact(() => writeState(doc, calc.getState()), LOCAL_QUIET);
     else if (needsThumbnail && !readonly) session.scheduleThumbnail();
     window.graphSession = session;
     return session;
@@ -207,9 +223,11 @@ export class GraphSession {
     });
 
     doc.on("update", (_update: Uint8Array, origin: unknown) => {
-      if (origin === LOCAL) this.scheduleThumbnail();
-      else this.remoteDirty = true;
+      if (isLocalOrigin(origin)) this.scheduleThumbnail();
+      if (origin !== LOCAL && origin !== LOCAL_QUIET) this.remoteDirty = true;
     });
+    if (this.canEdit) this.history = new UndoHistory(doc);
+    this.bindUndo();
     const initial = calc.getState();
     this.rememberCommitted(initial);
     this.trackSliders(initial, false);
@@ -268,6 +286,64 @@ export class GraphSession {
     );
   }
 
+  private bindUndo() {
+    const route = routeUndo(this.calc, {
+      undo: () => this.undo(),
+      redo: () => this.redo(),
+      canUndo: () => this.canEdit && !!this.history?.canUndo,
+      canRedo: () => this.canEdit && !!this.history?.canRedo,
+    });
+    if (route) {
+      this.refreshUndo = route.refresh;
+      this.detachUi.push(route.detach);
+      for (const name of ["stack-item-added", "stack-item-popped", "stack-cleared"] as const)
+        this.history?.manager.on(name, route.refresh);
+      route.refresh();
+    } else {
+      const onClick = (event: MouseEvent) => {
+        const button = (event.target as Element | null)?.closest(".dcg-action-undo, .dcg-action-redo");
+        if (!button) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (button.classList.contains("dcg-action-undo")) this.undo();
+        else this.redo();
+      };
+      this.container.addEventListener("click", onClick, true);
+      this.detachUi.push(() => this.container.removeEventListener("click", onClick, true));
+    }
+    const onKey = (event: KeyboardEvent) => {
+      const kind = undoKey(event);
+      const target = event.target as Node | null;
+      if (!kind || (target !== document.body && !this.container.contains(target))) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this[kind]();
+    };
+    window.addEventListener("keydown", onKey, true);
+    this.detachUi.push(() => window.removeEventListener("keydown", onKey, true));
+  }
+
+  undo() {
+    this.travel("undo");
+  }
+
+  redo() {
+    this.travel("redo");
+  }
+
+  private travel(kind: "undo" | "redo") {
+    const history = this.history;
+    if (!history || !this.canEdit || this.disposed || this.dragging) return;
+    this.flushPendingCapture();
+    const before = readState(this.doc);
+    const focused = expressionFocused(this.container);
+    if (!history.pop(kind)) return;
+    this.pushToDesmos();
+    const id = affectedId(before, readState(this.doc));
+    if (focused && id) focusExpressionEnd(this.container, id);
+    this.refreshUndo();
+  }
+
   private bindExit() {
     this.detachUi.push(
       listen(window, "pagehide", () => this.flushPendingCapture()),
@@ -292,7 +368,9 @@ export class GraphSession {
     if (!this.dragging) return;
     this.dragging = false;
     this.dragPatches = null;
+    this.history?.cut();
     this.capture();
+    this.history?.cut();
   }
 
   private trackSliders(state: DesmosState, user: boolean) {
@@ -575,10 +653,12 @@ export class GraphSession {
     const viewportChanged = owner && !deepEqual(state.graph?.viewport, readViewport(this.doc));
     const throttled = viewportChanged && now - this.lastViewportAt < VIEWPORT_MS;
     const title = this.titleInput.value;
+    this.history?.before(stepOf(committed, state));
+    this.doc.transact(() => writeState(this.doc, state, { keepViewport: true }), LOCAL);
     this.doc.transact(() => {
-      writeState(this.doc, state, { keepViewport: !owner || throttled });
+      if (owner && !throttled) writeView(this.doc, state.graph);
       writeTitle(this.doc, title.trim() ? title : "");
-    }, LOCAL);
+    }, LOCAL_QUIET);
     if (throttled) this.scheduleCapture(VIEWPORT_MS - (now - this.lastViewportAt));
     else if (viewportChanged) this.lastViewportAt = now;
   }
@@ -658,6 +738,7 @@ export class GraphSession {
     this.flushPendingCapture();
     this.disposed = true;
     this.cursors?.dispose();
+    this.history?.destroy();
     this.socket.awareness.off("change", this.onAwareness);
     if (this.retireTimer !== null) clearTimeout(this.retireTimer);
     if (this.tweenFrame !== null) cancelAnimationFrame(this.tweenFrame);

@@ -3,7 +3,7 @@ import * as encoding from "lib0/encoding";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as syncProtocol from "y-protocols/sync";
 import type { Role } from "../api/types";
-import { LOCAL, REMOTE, type Y } from "./ydesmos";
+import { REMOTE, type Y, isLocalOrigin } from "./ydesmos";
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -195,7 +195,7 @@ export class GraphSocket {
   }
 
   private readonly onDocUpdate = (update: Uint8Array, origin: unknown) => {
-    if (origin !== LOCAL || !this.canEdit || !this.answeredServer) return;
+    if (!isLocalOrigin(origin) || !this.canEdit || !this.answeredServer) return;
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeUpdate(encoder, update);

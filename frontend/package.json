@@ -8,7 +8,8 @@
     "build": "pnpm typecheck && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "preview": "vite preview",
-    "format": "prettier --write src vite.config.ts"
+    "format": "prettier --write src vite.config.ts",
+    "check:undo": "node scripts/undo-check.mjs"
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {

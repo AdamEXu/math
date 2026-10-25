@@ -106,10 +106,26 @@ function restoreFocus(focus: Focus) {
   if (!input || field?.contains(document.activeElement)) return;
   input.focus();
   if (focus.offset === null) return;
-  const press = (key: string, keyCode: number) =>
-    input.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, keyCode, which: keyCode, bubbles: true }));
-  press("Home", 36);
-  for (let i = 0; i < focus.offset; i++) press("ArrowRight", 39);
+  press(input, "Home", 36);
+  for (let i = 0; i < focus.offset; i++) press(input, "ArrowRight", 39);
+}
+
+function press(input: HTMLTextAreaElement, key: string, keyCode: number) {
+  input.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, keyCode, which: keyCode, bubbles: true }));
+}
+
+export function expressionFocused(root: Element) {
+  const field = document.activeElement?.closest(FIELD);
+  return !!field && root.contains(field) && !!field.closest("[expr-id]");
+}
+
+export function focusExpressionEnd(root: Element, id: string) {
+  const row = root.querySelector(`[expr-id="${CSS.escape(id)}"]`);
+  const input = row?.querySelector(FIELD)?.querySelector("textarea");
+  if (!input) return false;
+  input.focus();
+  press(input, "End", 35);
+  return true;
 }
 
 const folderOf = (item: Item) => (typeof item.folderId === "string" ? item.folderId : "");

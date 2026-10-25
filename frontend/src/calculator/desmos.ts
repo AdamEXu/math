@@ -20,6 +20,7 @@ export interface Calculator {
   removeExpressions(expressions: { id: string }[]): void;
   updateSettings(settings: Record<string, unknown>): void;
   withHistoryReplacement(callback: () => void): void;
+  clearHistory(): void;
   readonly selectedExpressionId: string | undefined;
   setSelectedExpressionId(id: string): void;
   observeEvent(name: "change", callback: (name: string, event: ChangeEvent) => void): void;
