@@ -17,7 +17,7 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:5173. Vite serves the app with hot reload and proxies `/api`, `/auth`, `/login`, `/static`, `/images`, `/graphs` and the `/ws` WebSockets to the backend on 5050. `flask run` still serves the HTTP API, but realtime editing needs uvicorn.
+Open http://localhost:5173. Vite serves the app with hot reload and proxies `/api`, `/auth`, `/login`, `/static`, `/images`, `/graphs`, `/desmos` and the `/ws` WebSockets to the backend on 5050. `flask run` still serves the HTTP API, but realtime editing needs uvicorn.
 
 Google sign-in still runs through Flask on 5050, so the registered redirect URI stays `http://localhost:5050/auth/google/callback`. After the callback, Flask redirects page routes to `FRONTEND_URL` (http://localhost:5173), and the session cookie is shared because cookies ignore the port.
 To skip Google locally, set `DEV_LOGIN_EMAIL` in `.env`: the login page then shows a "Dev sign-in" button, plus a field to sign in as any other `@pinewood.edu` address (handy for testing sharing with a second user in a private window). Both only work in debug mode (`FLASK_DEBUG=1`) with a localhost `BASE_URL`.
@@ -46,6 +46,10 @@ The client keeps each graph's Y.Doc in IndexedDB per user, so edits made offline
 ### Sharing
 
 Graphs have an owner (`graphs.owner_id`), editor/viewer rows in `graph_members`, and `graphs.link_access` (`NULL` = restricted, or `viewer`/`editor` for anyone signed in with the link). Opening a link-shared graph records a row in `graph_link_visits` so it shows under "Shared with you". Image URLs are content hashes, so any signed-in user can read them; that keeps images working for everyone a graph is shared with.
+
+### Desmos bundle
+
+At startup `desmos_bundle.py` downloads the official Desmos v1.13 `calculator.js` with `DESMOS_API_KEY`, applies string-anchored patches that make `tone()` playback cheap (oscillators only for audible list elements, audio recomputed only for changed tone items) and serves the result at `/desmos/calculator-<commit>-<hash>.js`. The official source is cached in `$DATA_DIR/desmos/` and used when the download fails. If no bundle is available or any anchor doesn't match exactly once, it logs why and `/api/config` lists only the official desmos.com script; the client also falls back to it if the patched script fails to load. The startup log line names the Desmos version and commit, and warns when the commit differs from `PATCHED_COMMIT`. Set `DESMOS_SELF_HOST=0` to always use the official script. To check the patches against a local copy: `uv run python desmos_bundle.py calculator.js patched.js`.
 
 ## Folder icons
 
