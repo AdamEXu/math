@@ -82,7 +82,6 @@ def test_assets_are_immutable(app):
 
 
 def test_static_files_still_served(app):
-    assert app.test_client().get("/static/icon.svg").status_code == 200
     assert app.test_client().get("/static/lucide/icons.json").status_code == 200
 
 

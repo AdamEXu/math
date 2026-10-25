@@ -1,8 +1,4 @@
-<img src="assets/icon.svg" width="64" height="64" alt="">
-
 # math
-
-Created in [T3 Code](https://t3.codes).
 
 A Flask JSON API (`/api/...`, plus `/auth/...`, `/login`, image and thumbnail serving) with a Vite + React + TypeScript single-page app in `frontend/`, plus WebSockets for live multiplayer editing.
 
