@@ -90,6 +90,14 @@ PATCHES = [
         "this.wizardModel.onEvaluatorChanges(e.changes),(g=this.toneController)==null||g.recomputeAudio(),",
         "this.wizardModel.onEvaluatorChanges(e.changes),(g=this.toneController)==null||g.recomputeAudio(e.changes),",
     ),
+    (
+        "screenshot calculator: muted, sliders and ticker stopped",
+        'f!=="projectorMode"&&(p[f]=d[f])}),l.updateSettings(p),l.setState(n),',
+        'f!=="projectorMode"&&f!=="muted"&&(p[f]=d[f])}),l.updateSettings(p),'
+        "l.setState({...n,expressions:{...n.expressions,"
+        "...n.expressions.ticker&&{ticker:{...n.expressions.ticker,playing:!1}},"
+        "list:n.expressions.list.map(x=>x.slider&&x.slider.isPlaying?{...x,slider:{...x.slider,isPlaying:!1}}:x)}}),",
+    ),
 ]
 
 _bundle = None

@@ -1,5 +1,8 @@
 import gzip
+import json
 import logging
+import shutil
+import subprocess
 
 import pytest
 
@@ -95,3 +98,43 @@ def test_download_errors_never_log_the_key(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(desmos_bundle.requests, "get", get)
     desmos_bundle.prepare(tmp_path, KEY)
     assert "ConnectionError" in caplog.text and KEY not in caplog.text
+
+
+def screenshot_patch():
+    return next(patch for patch in desmos_bundle.PATCHES if patch[0].startswith("screenshot calculator"))
+
+
+def test_screenshot_calculator_never_copies_muted():
+    _, anchor, replacement = screenshot_patch()
+    assert 'f!=="muted"' not in anchor and 'f!=="muted"&&(p[f]=d[f])' in replacement
+    assert replacement.startswith('f!=="projectorMode"&&') and replacement.endswith("),")
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+def test_screenshot_calculator_gets_a_stopped_copy_of_the_state():
+    _, _, replacement = screenshot_patch()
+    stopped = replacement[replacement.index("l.setState(") + len("l.setState(") : -2]
+    state = {
+        "graph": {"viewport": {}},
+        "expressions": {
+            "ticker": {"handlerLatex": "a\\to a+1", "playing": True, "open": True},
+            "list": [
+                {"id": "1", "latex": "t=78.7", "slider": {"isPlaying": True, "loopMode": "PLAY_INDEFINITELY"}},
+                {"id": "2", "latex": "d=0.65", "slider": {"min": "0"}},
+                {"id": "3", "type": "text"},
+            ],
+        },
+    }
+    script = f"let n={json.dumps(state)},s=JSON.stringify(n),r={stopped};console.log(JSON.stringify([r,JSON.stringify(n)===s]))"
+    result, untouched = json.loads(subprocess.run(["node", "-e", script], capture_output=True, check=True).stdout)
+    assert untouched
+    assert result["graph"] == state["graph"]
+    assert result["expressions"]["ticker"] == {"handlerLatex": "a\\to a+1", "playing": False, "open": True}
+    first, second, third = result["expressions"]["list"]
+    assert first == {**state["expressions"]["list"][0], "slider": {"isPlaying": False, "loopMode": "PLAY_INDEFINITELY"}}
+    assert [second, third] == state["expressions"]["list"][1:]
+
+    del state["expressions"]["ticker"]
+    script = f"let n={json.dumps(state)};console.log(JSON.stringify({stopped}))"
+    result = json.loads(subprocess.run(["node", "-e", script], capture_output=True, check=True).stdout)
+    assert "ticker" not in result["expressions"]
