@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-export const LUCIDE_VERSION = "1.61.0";
+export const LUCIDE_VERSION = "1.64.0";
 const ICON_SET_URL = `/static/lucide/icons.json?v=${LUCIDE_VERSION}`;
 
 export type IconEntry = { name: string; tags: string[] };

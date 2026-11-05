@@ -4,7 +4,7 @@ from html import escape
 from pathlib import Path
 from urllib.request import urlopen
 
-VERSION = sys.argv[1] if len(sys.argv) > 1 else "1.61.0"
+VERSION = sys.argv[1] if len(sys.argv) > 1 else "1.64.0"
 BASE = f"https://cdn.jsdelivr.net/npm/lucide-static@{VERSION}"
 OUT = Path(__file__).resolve().parent.parent / "static" / "lucide" / "icons.json"
 
