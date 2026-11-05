@@ -102,7 +102,7 @@ def test_icons_empty_without_folders(alice):
 
 
 def test_vendored_icon_set_matches_pinned_lucide():
-    assert lucide.LUCIDE_VERSION == "1.61.0"
+    assert lucide.LUCIDE_VERSION == "1.64.0"
     assert len(lucide.ICON_NAMES) > 1500
     assert {"folder", "pi", "dna", "triangle", "sigma"} <= lucide.ICON_NAMES
 
