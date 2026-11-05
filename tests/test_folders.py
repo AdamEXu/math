@@ -105,6 +105,29 @@ def test_vendored_icon_set_matches_pinned_lucide():
     assert lucide.LUCIDE_VERSION == "1.64.0"
     assert len(lucide.ICON_NAMES) > 1500
     assert {"folder", "pi", "dna", "triangle", "sigma"} <= lucide.ICON_NAMES
+    assert lucide.ICON_MARKUP["archive-restore"] == lucide.ICON_MARKUP["archive-arrow-up"]
+    assert lucide.ICON_MARKUP["circle-parking"] == lucide.ICON_MARKUP["circle-letter-p"]
+    assert lucide.ICON_MARKUP["square-m"] == lucide.ICON_MARKUP["square-letter-m"]
+    assert {"bold", "heading"} <= lucide.ICON_NAMES
+
+
+def test_lucide_rename_aliases_still_render(alice):
+    names = [
+        "archive-restore",
+        "bold",
+        "circle-parking",
+        "circle-parking-off",
+        "heading",
+        "square-m",
+        "square-parking",
+        "square-parking-off",
+    ]
+    for name in names:
+        assert make_folder(alice, name, icon=name)["icon"] == name
+    icons = folder_list(alice)["icons"]
+    assert set(icons) == set(names)
+    for name in names:
+        assert icons[name] == lucide.ICON_MARKUP[name] and icons[name].startswith("<")
 
 
 def test_update_folder(alice):
